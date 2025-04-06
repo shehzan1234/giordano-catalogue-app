@@ -34,17 +34,17 @@ class WhatsAppPDF(FPDF):
     def product_card(self, data, image):
         self.set_font("Arial", '', 12)
         self.set_fill_color(220, 248, 198)
-        
-        # Build product info
-        lines = []
-        lines.append(f"{data['Model']} - {data.get('Name', '')}")
-        lines.append(f"MRP: ₹{data['MRP']}")
-        lines.append(f"Offer: ₹{data['CSP']} ({data['Discount']} OFF)")
-        lines.append(f"Gender: {data['Gender']}")
-        lines.append(f"Inventory: {data['Inventory']}")
-        if data.get('Remarks'):
+
+        lines = [
+            f"{data['Model']}",
+            f"MRP: ₹{data['MRP']}",
+            f"Offer: ₹{data['CSP']} ({data['Discount']} OFF)",
+            f"Gender: {data['Gender']}",
+            f"Inventory: {data['Inventory']}"
+        ]
+        if data.get("Remarks"):
             lines.append(f"Note: {data['Remarks']}")
-        
+
         full_text = "\n".join(lines)
         self.multi_cell(0, 10, full_text, border=1, fill=True)
 
@@ -91,13 +91,12 @@ if st.button("Generate Catalogue") and excel_file and image_zip:
         model = os.path.splitext(str(row["Model"]).strip())[0]
         data = {
             "Model": model,
-            "Name": row.get("Name", ""),
             "MRP": str(row["MRP"]),
             "CSP": str(row["CSP"]),
             "Discount": str(row["Discount"]),
-            "Gender": row["Gender"],
+            "Gender": str(row["Gender"]),
             "Inventory": str(row["Inventory"]),
-            "Remarks": row.get("Remarks", "")
+            "Remarks": str(row.get("Remarks", ""))
         }
         image = images.get(model)
         if image:
@@ -110,6 +109,6 @@ if st.button("Generate Catalogue") and excel_file and image_zip:
         st.error("❌ No product cards were created. Check image names in Excel and ZIP.")
     else:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
-            pdf.output(tmp_pdf.name)
+            pdf.output(tmp_pdf.name, "F")
             with open(tmp_pdf.name, "rb") as f:
                 st.download_button("📄 Download Catalogue PDF", f, file_name="giordano_catalogue.pdf")
