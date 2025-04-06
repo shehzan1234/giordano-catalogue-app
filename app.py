@@ -18,22 +18,20 @@ def load_images_from_zip(zip_file):
                     image_dict[key] = img
     return image_dict
 
-# Unicode PDF class with grid support
+# Unicode PDF with proper grid layout
 class GridPDF(FPDF):
     def __init__(self, logo_path, items_per_row=2):
         super().__init__()
         self.logo_path = logo_path
         self.items_per_row = items_per_row
-        self.set_auto_page_break(auto=True, margin=15)
-        self.margin_x = 10
-        self.margin_y = 10
-        self.page_width = self.w - 2 * self.margin_x
-        self.card_width = (self.page_width - ((self.items_per_row - 1) * 10)) / self.items_per_row
-        self.card_height = 100
+        self.margin = 10
+        self.spacing = 10
+        self.card_width = (self.w - 2 * self.margin - (items_per_row - 1) * self.spacing) / items_per_row
+        self.card_height = 80
 
-        # Load Unicode font
         self.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
         self.set_font("DejaVu", "", 10)
+        self.set_auto_page_break(auto=True, margin=15)
 
     def header(self):
         if self.logo_path:
@@ -42,35 +40,35 @@ class GridPDF(FPDF):
         self.cell(0, 10, "Product Catalogue", 0, 1, "C")
         self.ln(10)
 
-    def product_grid(self, product_list):
-        x_start = self.margin_x
+    def product_grid(self, products):
+        x_start = self.margin
         y = self.get_y()
+        initial_y = y
+        row_height = self.card_height + 60  # room for image + text
 
-        for i, (data, image) in enumerate(product_list):
-            col = i % self.items_per_row
-            x = x_start + col * (self.card_width + 10)
-            if col == 0 and i != 0:
-                y += self.card_height + 10
+        for index, (data, image) in enumerate(products):
+            col = index % self.items_per_row
+            x = x_start + col * (self.card_width + self.spacing)
 
-            self.set_xy(x, y)
+            # Start new row if at first column and not first product
+            if col == 0 and index != 0:
+                y += row_height
+                self.set_y(y)
 
-            # Draw border
-            self.rect(x, y, self.card_width, self.card_height)
-
-            # Image section
+            # Draw card image
             if image:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_img:
                     image.save(tmp_img.name, format="JPEG")
-                    self.image(tmp_img.name, x + 5, y + 5, self.card_width - 10, 40)
+                    self.image(tmp_img.name, x, y, self.card_width, 40)
                     os.unlink(tmp_img.name)
 
-            # Text section
-            self.set_xy(x + 5, y + 50)
+            # Text
+            self.set_xy(x, y + 42)
             discount = data["Discount"]
             if not str(discount).endswith("%"):
                 discount = f"{discount}%"
 
-            text_lines = [
+            lines = [
                 f"{data['Model']}",
                 f"MRP: ₹{data['MRP']}",
                 f"Offer: ₹{data['CSP']} ({discount} OFF)",
@@ -78,16 +76,17 @@ class GridPDF(FPDF):
                 f"Inventory: {data['Inventory']}",
             ]
             if data.get("Remarks") and str(data["Remarks"]).strip().lower() != "nan":
-                text_lines.append(f"Note: {data['Remarks']}")
+                lines.append(f"Note: {data['Remarks']}")
 
-            for line in text_lines:
-                self.cell(self.card_width - 10, 5, line, ln=1)
+            for line in lines:
+                self.set_x(x)
+                self.cell(self.card_width, 5, line, ln=1)
 
-        self.ln(self.card_height + 10)
+        self.ln(row_height)
 
-# Streamlit App
+# Streamlit UI
 st.set_page_config(page_title="Giordano Grid Catalogue Generator")
-st.title("🛍️ Giordano Grid-style Product Catalogue Generator")
+st.title("🛍️ Giordano Grid-style Catalogue Generator")
 
 excel_file = st.file_uploader("Upload Excel File", type=["xlsx"])
 image_zip = st.file_uploader("Upload Product Images (ZIP)", type=["zip"])
@@ -117,7 +116,7 @@ if st.button("Generate Catalogue") and excel_file and image_zip:
     pdf = GridPDF(logo_path=logo_path, items_per_row=2)
     pdf.add_page()
 
-    products = []
+    product_cards = []
     for _, row in df.iterrows():
         model = str(row["Model"]).strip().lower()
         data = {
@@ -131,18 +130,17 @@ if st.button("Generate Catalogue") and excel_file and image_zip:
         }
         image = images.get(model)
         if image:
-            products.append((data, image))
+            product_cards.append((data, image))
         else:
             st.warning(f"⚠️ No image found for model: {model}")
 
-    if not products:
+    if not product_cards:
         st.error("❌ No product cards were created.")
     else:
-        # Create pages of grid layout
-        for i in range(0, len(products), pdf.items_per_row * 3):  # 3 rows per page
-            chunk = products[i:i + pdf.items_per_row * 3]
+        for i in range(0, len(product_cards), pdf.items_per_row * 3):
+            chunk = product_cards[i:i + pdf.items_per_row * 3]
             pdf.product_grid(chunk)
-            if i + pdf.items_per_row * 3 < len(products):
+            if i + pdf.items_per_row * 3 < len(product_cards):
                 pdf.add_page()
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
