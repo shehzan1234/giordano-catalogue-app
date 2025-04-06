@@ -19,88 +19,74 @@ def load_images_from_zip(zip_file):
 
 class WhatsAppPDF(FPDF):
     def __init__(self, logo_path, products_per_row=2):
-        super().__init__('P', 'mm', 'A4')
+        super().__init__(orientation='P', unit='mm', format='A4')
         self.logo_path = logo_path
         self.products_per_row = products_per_row
-        self.set_auto_page_break(auto=True, margin=15)
+        self.set_auto_page_break(auto=True, margin=10)
         self.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
         self.set_font("DejaVu", size=9)
 
     def header(self):
         if self.logo_path:
+            page_width = self.w
             logo_width = 50
-            x = (self.w - logo_width) / 2
+            x = (page_width - logo_width) / 2
             self.image(self.logo_path, x=x, y=8, w=logo_width)
-            self.ln(25)  # reserve space below logo
+            self.set_y(30)  # Provide space below logo
 
     def add_product_grid(self, products):
         spacing = 5
-        margin = 10
-        card_width = (self.w - 2 * margin - (self.products_per_row - 1) * spacing) / self.products_per_row
-        y = self.get_y()
+        margin_x = 10
+        card_width = (self.w - 2 * margin_x - (self.products_per_row - 1) * spacing) / self.products_per_row
 
-        row_data = []
-        for idx, (data, image) in enumerate(products):
-            row_data.append((data, image))
+        row = []
+        for i, (data, image) in enumerate(products):
+            row.append((data, image))
+            if len(row) == self.products_per_row or i == len(products) - 1:
+                y_top = self.get_y()
+                max_height = max([self.calculate_card_height(d, img, card_width) for d, img in row])
+                for col_idx, (data, image) in enumerate(row):
+                    x = margin_x + col_idx * (card_width + spacing)
+                    self.set_xy(x, y_top)
+                    self.product_card(data, image, card_width, max_height)
+                self.set_y(y_top + max_height + spacing)
+                row = []
 
-            # Render the row once it's filled or last row
-            if len(row_data) == self.products_per_row or idx == len(products) - 1:
-                # Measure max card height in row
-                heights = []
-                for d, img in row_data:
-                    heights.append(self.calculate_card_height(img))
-                row_height = max(heights) + 35  # extra space for text
+    def calculate_card_height(self, data, image, card_width):
+        return 85  # Fixed for consistent layout
 
-                # If next row doesn't fit, start new page
-                if y + row_height > self.h - 15:
-                    self.add_page()
-                    y = self.get_y()
-
-                for i, (d, img) in enumerate(row_data):
-                    x = margin + i * (card_width + spacing)
-                    self.set_xy(x, y)
-                    self.draw_card(d, img, card_width)
-
-                y += row_height + 5
-                self.set_y(y)
-                row_data = []
-
-    def calculate_card_height(self, image):
-        return 45  # consistent max image height
-
-    def draw_card(self, data, image, card_width):
+    def product_card(self, data, image, card_width, card_height):
         card_padding = 2
         text_height = 4
-        card_height = self.calculate_card_height(image) + 35
+        image_max_height = 40
 
-        x_start = self.get_x()
-        y_start = self.get_y()
+        x_card = self.get_x()
+        y_card = self.get_y()
 
+        # Draw white card background
         self.set_fill_color(255, 255, 255)
-        self.rect(x_start, y_start, card_width, card_height, 'F')
+        self.rect(x_card, y_card, card_width, card_height, 'F')
 
         if image:
-            max_img_w = card_width - 2 * card_padding
-            max_img_h = 45
-
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmpfile:
                 image.save(tmpfile.name, format="JPEG", quality=95)
                 iw, ih = image.size
                 aspect = iw / ih
 
-                display_w = max_img_w
+                display_w = card_width - 2 * card_padding
                 display_h = display_w / aspect
-                if display_h > max_img_h:
-                    display_h = max_img_h
+                if display_h > image_max_height:
+                    display_h = image_max_height
                     display_w = display_h * aspect
 
-                x_img = x_start + (card_width - display_w) / 2
-                y_img = y_start + card_padding
+                x_img = x_card + (card_width - display_w) / 2
+                y_img = y_card + card_padding
                 self.image(tmpfile.name, x=x_img, y=y_img, w=display_w, h=display_h)
                 os.unlink(tmpfile.name)
 
-        # Draw text below image
-        self.set_xy(x_start + card_padding, y_start + max_img_h + 2)
+        # Position text below image
+        y_text = y_card + card_padding + image_max_height + 1
+        self.set_xy(x_card + card_padding, y_text)
         self.set_font("DejaVu", size=9)
         self.cell(card_width - 2 * card_padding, text_height, data['Model'], ln=1)
 
@@ -121,6 +107,7 @@ st.title("🛍️ Giordano WhatsApp-style Catalogue Generator")
 excel_file = st.file_uploader("Upload Excel File", type=["xlsx"])
 image_zip = st.file_uploader("Upload Product Images (ZIP)", type=["zip"])
 logo_file = st.file_uploader("Upload Brand Logo (PNG)", type=["png"])
+
 products_per_row = st.selectbox("Products per row in PDF:", [2, 3], index=0)
 
 if st.button("Generate Catalogue") and excel_file and image_zip:
