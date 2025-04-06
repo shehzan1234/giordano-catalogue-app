@@ -76,7 +76,7 @@ class CataloguePDF(FPDF):
             text = (
                 f"{item['data']['Model']}\n"
                 f"MRP: ₹{item['data']['MRP']}\n"
-                f"Offer: ₹{item['data']['CSP']} ({item['data']['Discount']} OFF)\n"
+                f"Offer: ₹{item['data']['CSP']} ({str(item['data']['Discount']).strip()}% OFF)\n"
                 f"Gender: {item['data']['Gender']}\n"
                 f"Inventory: {item['data']['Inventory']}"
             )
