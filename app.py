@@ -6,6 +6,7 @@ from fpdf import FPDF
 import tempfile
 import zipfile
 
+# Load images from zip
 def load_images_from_zip(zip_file):
     image_dict = {}
     with zipfile.ZipFile(zip_file, 'r') as z:
@@ -17,28 +18,33 @@ def load_images_from_zip(zip_file):
                     image_dict[model_name.strip()] = img
     return image_dict
 
+# PDF generator class with Unicode font support
 class WhatsAppPDF(FPDF):
     def __init__(self, logo_path):
         super().__init__()
         self.logo_path = logo_path
         self.set_auto_page_break(auto=True, margin=15)
 
+        # Use DejaVu font for full Unicode support
+        self.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
+        self.set_font("DejaVu", "", 12)
+
     def header(self):
         if self.logo_path:
             self.image(self.logo_path, 10, 8, 33)
-        self.set_font('Arial', 'B', 15)
+        self.set_font('DejaVu', '', 15)
         self.cell(80)
         self.cell(30, 10, 'Product Catalogue', 0, 0, 'C')
         self.ln(20)
 
     def product_card(self, data, image):
-        self.set_font("Arial", '', 12)
+        self.set_font("DejaVu", '', 12)
         self.set_fill_color(220, 248, 198)
 
         lines = [
             f"{data['Model']}",
             f"MRP: ₹{data['MRP']}",
-            f"Offer: ₹{data['CSP']} ({data['Discount']} OFF)",
+            f"Offer Price: ₹{data['CSP']} ({data['Discount']} OFF)",
             f"Gender: {data['Gender']}",
             f"Inventory: {data['Inventory']}"
         ]
@@ -55,6 +61,7 @@ class WhatsAppPDF(FPDF):
                 os.unlink(tmpfile.name)
         self.ln(5)
 
+# Streamlit UI
 st.set_page_config(page_title="Giordano Catalogue Generator")
 st.title("🛍️ Giordano WhatsApp-style Catalogue Generator")
 
@@ -76,6 +83,7 @@ if st.button("Generate Catalogue") and excel_file and image_zip:
 
     images = load_images_from_zip(image_zip)
 
+    # Save logo to temp file if uploaded
     if logo_file:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_logo:
             tmp_logo.write(logo_file.read())
@@ -109,6 +117,6 @@ if st.button("Generate Catalogue") and excel_file and image_zip:
         st.error("❌ No product cards were created. Check image names in Excel and ZIP.")
     else:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
-            pdf.output(tmp_pdf.name, "F")
+            pdf.output(tmp_pdf.name)
             with open(tmp_pdf.name, "rb") as f:
                 st.download_button("📄 Download Catalogue PDF", f, file_name="giordano_catalogue.pdf")
