@@ -1,10 +1,11 @@
 import streamlit as st
 import pandas as pd
 from PIL import Image, ImageDraw, ImageFont
-from fpdf import FPDF
-import zipfile
 import os
 from pathlib import Path
+from fpdf import FPDF
+import zipfile
+import shutil
 
 # Setup directories
 UPLOAD_DIR = Path("uploads")
