@@ -6,90 +6,104 @@ from fpdf import FPDF
 import tempfile
 import zipfile
 
-# Load images from ZIP file
+# Load images from ZIP
 def load_images_from_zip(zip_file):
     image_dict = {}
     with zipfile.ZipFile(zip_file, 'r') as z:
         for filename in z.namelist():
-            if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+            if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
                 with z.open(filename) as file:
                     img = Image.open(file).convert("RGB")
-                    key = os.path.splitext(os.path.basename(filename))[0].strip().lower()
-                    image_dict[key] = img
+                    model_name = os.path.splitext(os.path.basename(filename))[0]
+                    image_dict[model_name.strip()] = img
     return image_dict
 
-# PDF class for grid layout with images above text
-class GridPDF(FPDF):
-    def __init__(self, logo_path, items_per_row=2):
+# PDF Class with Grid Layout
+class WhatsAppPDF(FPDF):
+    def __init__(self, logo_path):
         super().__init__()
         self.logo_path = logo_path
-        self.items_per_row = items_per_row
-        self.margin = 10
-        self.spacing = 8
-        self.card_width = (self.w - 2 * self.margin - (items_per_row - 1) * self.spacing) / items_per_row
-        self.card_height = 100
-
-        self.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
-        self.set_font("DejaVu", "", 10)
         self.set_auto_page_break(auto=True, margin=15)
+
+        # Unicode font
+        self.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
+        self.set_font("DejaVu", "", 12)
+
+        self.card_width = 90
+        self.card_height = 90
+        self.margin_x = 10
+        self.margin_y = 10
 
     def header(self):
         if self.logo_path:
-            self.image(self.logo_path, x=self.w/2 - 20, y=8, w=40)
-        self.ln(25)
+            # Keep logo aspect ratio
+            with Image.open(self.logo_path) as img:
+                w, h = img.size
+                max_w = 50
+                aspect_ratio = h / w
+                display_w = max_w
+                display_h = max_w * aspect_ratio
+                self.image(self.logo_path, x=10, y=8, w=display_w, h=display_h)
+            self.ln(25)
+        else:
+            self.ln(10)
 
-    def product_grid(self, products):
-        x_start = self.margin
+    def product_grid(self, data_list, image_dict):
+        self.set_fill_color(220, 248, 198)
+        x_start = self.l_margin
         y = self.get_y()
-        row_height = self.card_height + 10
+        col = 0
 
-        for index, (data, image) in enumerate(products):
-            col = index % self.items_per_row
-            x = x_start + col * (self.card_width + self.spacing)
+        for data in data_list:
+            model = data["Model"]
+            image = image_dict.get(model)
 
-            if col == 0 and index != 0:
-                y += row_height
-                self.set_y(y)
+            x = x_start + col * (self.card_width + self.margin_x)
+
+            # Check if new row needed
+            if col >= 2:
+                col = 0
+                x = x_start
+                y += self.card_height + self.margin_y
+
+            self.set_xy(x, y)
 
             # Draw image preserving aspect ratio
-            img_w = self.card_width
-            img_h = 50
+            max_w = self.card_width
+            max_h = 50
             if image:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_img:
                     image.save(tmp_img.name, format="JPEG")
-                    self.image(tmp_img.name, x, y, w=img_w, h=img_h)
+                    iw, ih = image.size
+                    ratio = min(max_w / iw, max_h / ih)
+                    display_w = iw * ratio
+                    display_h = ih * ratio
+                    img_x = x + (self.card_width - display_w) / 2
+                    self.image(tmp_img.name, img_x, y, w=display_w, h=display_h)
                     os.unlink(tmp_img.name)
 
-            # Text block
-            text_y = y + img_h + 2
-            self.set_xy(x, text_y)
-
-            discount = data["Discount"]
-            if not str(discount).endswith("%"):
-                discount = f"{discount}%"
-
+            # Draw text box
+            self.set_xy(x, y + max_h + 2)
             lines = [
                 f"{data['Model']}",
                 f"MRP: ₹{data['MRP']}",
-                f"Offer: ₹{data['CSP']} ({discount} OFF)",
+                f"Offer Price: ₹{data['CSP']} ({data['Discount']} OFF)",
                 f"Gender: {data['Gender']}",
-                f"Inventory: {data['Inventory']}",
+                f"Inventory: {data['Inventory']}"
             ]
-            if data.get("Remarks") and str(data["Remarks"]).strip().lower() != "nan":
+            if data.get("Remarks") and data["Remarks"].lower() != "nan":
                 lines.append(f"Note: {data['Remarks']}")
+            full_text = "\n".join(lines)
+            self.multi_cell(self.card_width, 5, full_text, border=1, fill=True)
 
-            for line in lines:
-                self.set_x(x)
-                self.multi_cell(self.card_width, 5, line)
+            col += 1
 
-        self.ln(row_height)
-
-# Streamlit interface
-st.set_page_config(page_title="Giordano Grid Catalogue")
-st.title("🛍️ Giordano Grid Catalogue Generator")
+# Streamlit UI
+st.set_page_config(page_title="Giordano Catalogue Generator")
+st.title("🛍️ Giordano WhatsApp-style Catalogue Generator")
 
 excel_file = st.file_uploader("Upload Excel File", type=["xlsx"])
-image_zip = st.file_uploader("Upload Product Images ZIP", type=["zip"])
+image_zip = st.file_uploader("Upload Product Images (ZIP)", type=["zip"])
 logo_file = st.file_uploader("Upload Brand Logo (PNG)", type=["png"])
 
 if st.button("Generate Catalogue") and excel_file and image_zip:
@@ -99,8 +113,8 @@ if st.button("Generate Catalogue") and excel_file and image_zip:
         st.error(f"❌ Error reading Excel file: {e}")
         st.stop()
 
-    required_cols = {"Model", "MRP", "CSP", "Discount", "Gender", "Inventory"}
-    if not required_cols.issubset(df.columns):
+    required_columns = {"Model", "MRP", "CSP", "Discount", "Gender", "Inventory"}
+    if not required_columns.issubset(df.columns):
         st.error("❌ Excel must contain: Model, MRP, CSP, Discount, Gender, Inventory (Remarks optional)")
         st.stop()
 
@@ -113,14 +127,14 @@ if st.button("Generate Catalogue") and excel_file and image_zip:
     else:
         logo_path = None
 
-    pdf = GridPDF(logo_path=logo_path, items_per_row=2)
+    pdf = WhatsAppPDF(logo_path=logo_path)
     pdf.add_page()
 
-    product_cards = []
+    data_list = []
     for _, row in df.iterrows():
-        model = str(row["Model"]).strip().lower()
+        model = str(row["Model"]).strip()
         data = {
-            "Model": model.upper(),
+            "Model": model,
             "MRP": str(row["MRP"]),
             "CSP": str(row["CSP"]),
             "Discount": str(row["Discount"]),
@@ -128,22 +142,15 @@ if st.button("Generate Catalogue") and excel_file and image_zip:
             "Inventory": str(row["Inventory"]),
             "Remarks": str(row.get("Remarks", ""))
         }
-        image = images.get(model)
-        if image:
-            product_cards.append((data, image))
-        else:
-            st.warning(f"⚠️ No image found for model: {model}")
+        data_list.append(data)
 
-    if not product_cards:
-        st.error("❌ No product cards were created. Check model names and image ZIP.")
-    else:
-        for i in range(0, len(product_cards), pdf.items_per_row * 3):
-            chunk = product_cards[i:i + pdf.items_per_row * 3]
-            pdf.product_grid(chunk)
-            if i + pdf.items_per_row * 3 < len(product_cards):
-                pdf.add_page()
+    if not any(images.get(d["Model"]) for d in data_list):
+        st.error("❌ No matching images found for the models.")
+        st.stop()
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
-            pdf.output(tmp_pdf.name)
-            with open(tmp_pdf.name, "rb") as f:
-                st.download_button("📄 Download PDF", f, file_name="giordano_grid_catalogue.pdf")
+    pdf.product_grid(data_list, images)
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
+        pdf.output(tmp_pdf.name)
+        with open(tmp_pdf.name, "rb") as f:
+            st.download_button("📄 Download Catalogue PDF", f, file_name="giordano_catalogue.pdf")
