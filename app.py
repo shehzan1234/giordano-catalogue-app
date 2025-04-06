@@ -73,7 +73,7 @@ class StyledPDF(FPDF):
         # Text info
         text_y = image_y + image_height + 2
         self.set_xy(x + padding, text_y)
-        self.set_font("DejaVu", "B", 10)
+        self.set_font("DejaVu", "", 10)
         self.multi_cell(w - 2 * padding, 5, f"{data['Model']}", align="L")
 
         self.set_font("DejaVu", "", 9)
