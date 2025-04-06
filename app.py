@@ -14,8 +14,7 @@ def load_images_from_zip(zip_file):
             if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
                 with z.open(filename) as file:
                     img = Image.open(file).convert("RGB")
-                    model_name = os.path.basename(filename).strip()
-                    image_dict[model_name] = img
+                    image_dict[filename.strip()] = img
     return image_dict
 
 # PDF Generator with Unicode support
@@ -95,9 +94,10 @@ if st.button("Generate Catalogue") and excel_file and image_zip:
 
     created_cards = 0
     for _, row in df.iterrows():
-        model = str(row["Model"]).strip()
+        model_raw = str(row["Model"]).strip()
+        model_with_ext = model_raw + ".jpg"
         data = {
-            "Model": model,
+            "Model": model_raw,
             "MRP": str(row["MRP"]),
             "CSP": str(row["CSP"]),
             "Discount": str(row["Discount"]),
@@ -105,12 +105,12 @@ if st.button("Generate Catalogue") and excel_file and image_zip:
             "Inventory": str(row["Inventory"]),
             "Remarks": str(row.get("Remarks", ""))
         }
-        image = images.get(model)
+        image = images.get(model_with_ext)
         if image:
             pdf.product_card(data, image)
             created_cards += 1
         else:
-            st.warning(f"⚠️ No image found for model: {model}")
+            st.warning(f"⚠️ No image found for model: {model_raw} (looking for {model_with_ext})")
 
     if created_cards == 0:
         st.error("❌ No product cards were created. Check image names in Excel and ZIP.")
