@@ -1,104 +1,90 @@
 import streamlit as st
-import pandas as pd
 from PIL import Image, ImageDraw, ImageFont
+import pandas as pd
+import zipfile
 import os
 from pathlib import Path
-from zipfile import ZipFile
+from io import BytesIO
 
-# App title
-st.set_page_config(page_title="Giordano Catalogue Generator", layout="wide")
-st.title("🛍️ Giordano WhatsApp Catalogue Generator")
+# Constants
+UPLOAD_DIR = Path("uploaded_data")
+UPLOAD_DIR.mkdir(exist_ok=True)
+image_dir = UPLOAD_DIR / "images"
+image_dir.mkdir(parents=True, exist_ok=True)
 
-# Upload section
-st.sidebar.header("Upload Files")
-product_file = st.sidebar.file_uploader("Upload Excel File", type=["xlsx"])
-image_zip_file = st.sidebar.file_uploader("Upload Product Images ZIP", type=["zip"])
-logo_file = st.sidebar.file_uploader("Upload Brand Logo (PNG)", type=["png"])
+# UI
+st.title("📦 Giordano WhatsApp Catalogue Generator")
 
-# Output folder
-output_dir = Path("output")
-card_dir = output_dir / "cards"
-output_dir.mkdir(exist_ok=True)
-card_dir.mkdir(exist_ok=True)
+excel_file = st.file_uploader("Upload Excel file", type=["xlsx"])
+images_zip = st.file_uploader("Upload Product Images ZIP", type=["zip"])
 
-# Clear existing cards
-for f in card_dir.glob("*.jpg"):
-    f.unlink()
-
-# Font setup
-try:
-    font = ImageFont.truetype("arial.ttf", 20)
-except:
-    font = ImageFont.load_default()
-
-if product_file and image_zip_file:
-    # Read Excel
-    df = pd.read_excel(product_file)
-
-    # Extract images
-    image_dir = output_dir / "images"
-    image_dir.mkdir(exist_ok=True)
-
-    with ZipFile(image_zip_file, 'r') as zip_ref:
+if excel_file and images_zip:
+    # Save and extract images
+    with zipfile.ZipFile(images_zip, "r") as zip_ref:
         zip_ref.extractall(image_dir)
 
-    # Load logo
-    logo = None
-    if logo_file:
-        logo = Image.open(logo_file).convert("RGBA").resize((80, 80))
+    df = pd.read_excel(excel_file)
+    card_dir = UPLOAD_DIR / "cards"
+    card_dir.mkdir(exist_ok=True)
 
-    # Generate product cards
+    image_paths = []
+    font = ImageFont.load_default()
+
     for idx, row in df.iterrows():
         model = str(row.get("Model", "")).strip()
-        if not model or model.lower() == 'nan':
+        if not model or model.lower() == "nan":
             continue
 
-        # Match image file regardless of extension or case
+        image_file_jpg = image_dir / f"{model}.jpg"
+        image_file_png = image_dir / f"{model}.png"
         image_file = None
-        model_lower = model.lower()
-        for file in image_dir.iterdir():
-            if file.stem.lower() == model_lower and file.suffix.lower() in [".jpg", ".jpeg", ".png"]:
-                image_file = file
-                break
 
-        if not image_file:
+        if image_file_jpg.exists():
+            image_file = image_file_jpg
+        elif image_file_png.exists():
+            image_file = image_file_png
+        else:
             st.warning(f"⚠️ Image not found for model: {model}")
             continue
 
         base = Image.open(image_file).convert("RGB").resize((500, 500))
         draw = ImageDraw.Draw(base)
-        draw.rectangle([(0, 420), (500, 500)], fill="white")
-        draw.text((10, 430), f"Model: {model}", fill="black", font=font)
 
+        # Background rectangle
+        draw.rectangle([(0, 420), (500, 500)], fill="white")
+
+        # Text info
+        draw.text((10, 430), f"Model: {model}", fill="black", font=font)
         try:
-            draw.text((10, 455), f"MRP: ₹{int(float(row['MRP']))}   Offer: ₹{int(float(row['CSP']))}", fill="black", font=font)
+            mrp = float(row.get("MRP", 0))
+            csp = float(row.get("CSP", 0))
+            draw.text((10, 455), f"MRP: ₹{int(mrp)}   Offer: ₹{int(csp)}", fill="black", font=font)
         except:
             draw.text((10, 455), "MRP: ₹-   Offer: ₹-", fill="black", font=font)
 
-        draw.text((10, 480), f"Stock: {row.get('Inventory', '')}   {row.get('Remarks', '')}", fill="black", font=font)
+        inventory = str(row.get("Inventory", ""))
+        remarks = str(row.get("Remarks", ""))
+        draw.text((10, 480), f"Stock: {inventory}   {remarks}", fill="black", font=font)
 
-        if logo:
-            base.paste(logo, (410, 10), logo)
+        card_path = card_dir / f"{model}.jpg"
+        base.save(card_path)
+        image_paths.append(card_path)
 
-        out_path = card_dir / f"{model}.jpg"
-        base.save(out_path)
+    # Generate PDF
+    if image_paths:
+        pdf_bytes = BytesIO()
+        images = [Image.open(path).convert("RGB") for path in image_paths]
+        images[0].save(pdf_bytes, format="PDF", save_all=True, append_images=images[1:])
+        pdf_bytes.seek(0)
 
-    # Display cards
-    st.subheader("Generated Catalogue")
-    images = list(card_dir.glob("*.jpg"))
-    for i in range(0, len(images), 3):
-        cols = st.columns(3)
-        for j, img_path in enumerate(images[i:i+3]):
-            with cols[j]:
-                st.image(str(img_path), use_column_width=True)
+        st.success("✅ Catalogue generated!")
 
-    # Download ZIP
-    zip_path = output_dir / "giordano_catalogue.zip"
-    with ZipFile(zip_path, "w") as zipf:
-        for img in card_dir.glob("*.jpg"):
-            zipf.write(img, arcname=img.name)
+        st.download_button(
+            label="📥 Download WhatsApp Catalogue (PDF)",
+            data=pdf_bytes,
+            file_name="giordano_catalogue.pdf",
+            mime="application/pdf"
+        )
+    else:
+        st.error("❌ No product cards were created. Check image names in Excel and ZIP.")
 
-    with open(zip_path, "rb") as f:
-        st.download_button("📦 Download Catalogue ZIP", f, file_name="giordano_catalogue.zip")
-else:
-    st.info("👈 Please upload the Excel and ZIP files to generate the catalogue.")
