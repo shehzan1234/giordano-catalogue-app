@@ -6,7 +6,6 @@ from fpdf import FPDF
 import tempfile
 import zipfile
 
-# Load images from zip
 def load_images_from_zip(zip_file):
     image_dict = {}
     with zipfile.ZipFile(zip_file, 'r') as z:
@@ -20,86 +19,88 @@ def load_images_from_zip(zip_file):
 
 class WhatsAppPDF(FPDF):
     def __init__(self, logo_path, products_per_row=2):
-        super().__init__(orientation='P', unit='mm', format='A4')
+        super().__init__('P', 'mm', 'A4')
         self.logo_path = logo_path
         self.products_per_row = products_per_row
-        self.set_auto_page_break(auto=True, margin=10)
-
+        self.set_auto_page_break(auto=True, margin=15)
         self.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
         self.set_font("DejaVu", size=9)
 
     def header(self):
         if self.logo_path:
-            page_width = self.w
             logo_width = 50
-            x = (page_width - logo_width) / 2
+            x = (self.w - logo_width) / 2
             self.image(self.logo_path, x=x, y=8, w=logo_width)
-            self.ln(30)
+            self.ln(25)  # reserve space below logo
 
     def add_product_grid(self, products):
-        card_width = (self.w - 20 - (self.products_per_row - 1) * 5) / self.products_per_row
-        x_start = 10
+        spacing = 5
+        margin = 10
+        card_width = (self.w - 2 * margin - (self.products_per_row - 1) * spacing) / self.products_per_row
+        y = self.get_y()
 
-        row = []
-        for i, (data, image) in enumerate(products):
-            row.append((data, image))
-            if len(row) == self.products_per_row or i == len(products) - 1:
-                y_start = self.get_y()
-                max_card_height = 0
+        row_data = []
+        for idx, (data, image) in enumerate(products):
+            row_data.append((data, image))
 
-                # First pass to determine max height
-                for data, image in row:
-                    card_height = self.calculate_card_height(data, image, card_width)
-                    max_card_height = max(max_card_height, card_height)
+            # Render the row once it's filled or last row
+            if len(row_data) == self.products_per_row or idx == len(products) - 1:
+                # Measure max card height in row
+                heights = []
+                for d, img in row_data:
+                    heights.append(self.calculate_card_height(img))
+                row_height = max(heights) + 35  # extra space for text
 
-                # Second pass to draw cards
-                for col, (data, image) in enumerate(row):
-                    x = x_start + col * (card_width + 5)
-                    self.set_xy(x, y_start)
-                    self.product_card(data, image, card_width, max_card_height)
+                # If next row doesn't fit, start new page
+                if y + row_height > self.h - 15:
+                    self.add_page()
+                    y = self.get_y()
 
-                self.set_y(y_start + max_card_height + 8)
-                row = []
+                for i, (d, img) in enumerate(row_data):
+                    x = margin + i * (card_width + spacing)
+                    self.set_xy(x, y)
+                    self.draw_card(d, img, card_width)
 
-    def calculate_card_height(self, data, image, card_width):
-        base_height = 50  # Space for image
-        line_height = 5
-        lines = 5 + (1 if data.get("Remarks") else 0)
-        return base_height + line_height * lines + 8
+                y += row_height + 5
+                self.set_y(y)
+                row_data = []
 
-    def product_card(self, data, image, card_width, card_height):
+    def calculate_card_height(self, image):
+        return 45  # consistent max image height
+
+    def draw_card(self, data, image, card_width):
         card_padding = 2
-        text_height = 5
+        text_height = 4
+        card_height = self.calculate_card_height(image) + 35
+
+        x_start = self.get_x()
+        y_start = self.get_y()
 
         self.set_fill_color(255, 255, 255)
-        self.rect(self.get_x(), self.get_y(), card_width, card_height, 'F')
-
-        x_card = self.get_x()
-        y_card = self.get_y()
+        self.rect(x_start, y_start, card_width, card_height, 'F')
 
         if image:
-            max_img_width = card_width - 2 * card_padding
-            max_img_height = 40
+            max_img_w = card_width - 2 * card_padding
+            max_img_h = 45
 
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmpfile:
                 image.save(tmpfile.name, format="JPEG", quality=95)
-                img_w, img_h = image.size
-                aspect = img_w / img_h
+                iw, ih = image.size
+                aspect = iw / ih
 
-                display_w = max_img_width
+                display_w = max_img_w
                 display_h = display_w / aspect
-                if display_h > max_img_height:
-                    display_h = max_img_height
+                if display_h > max_img_h:
+                    display_h = max_img_h
                     display_w = display_h * aspect
 
-                x_img = x_card + (card_width - display_w) / 2
-                y_img = y_card + card_padding
+                x_img = x_start + (card_width - display_w) / 2
+                y_img = y_start + card_padding
                 self.image(tmpfile.name, x=x_img, y=y_img, w=display_w, h=display_h)
                 os.unlink(tmpfile.name)
 
-        # Start text below image
-        y_text = y_card + 42
-        self.set_xy(x_card + card_padding, y_text)
+        # Draw text below image
+        self.set_xy(x_start + card_padding, y_start + max_img_h + 2)
         self.set_font("DejaVu", size=9)
         self.cell(card_width - 2 * card_padding, text_height, data['Model'], ln=1)
 
