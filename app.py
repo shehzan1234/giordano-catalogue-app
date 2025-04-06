@@ -72,27 +72,35 @@ if st.button("Generate Catalogue") and excel_file and images_zip:
                 font = ImageFont.load_default()
 
             # Generate product cards
-            for idx, row in df.iterrows():
-                model = str(row.get("Model", "")).strip()
-                if not model or model.lower() == 'nan':
-                    continue
+    for idx, row in df.iterrows():
+        model = str(row.get("Model", "")).strip()
+        if not model or model.lower() == 'nan':
+            continue
 
-               image_file = None
-    model_lower = model.lower()
-    for file in image_dir.iterdir():
-        if file.stem.lower() == model_lower and file.suffix.lower() in [".jpg", ".jpeg", ".png"]:
-            image_file = file
-            break
+        # Match image file regardless of extension or case
+        image_file = None
+        model_lower = model.lower()
+        for file in image_dir.iterdir():
+            if file.stem.lower() == model_lower and file.suffix.lower() in [".jpg", ".jpeg", ".png"]:
+                image_file = file
+                break
 
-    if not image_file:
-        st.warning(f"⚠️ Image not found for model: {model}")
-        continue
+        if not image_file:
+            st.warning(f"⚠️ Image not found for model: {model}")
+            continue
 
-                base = Image.open(image_file).convert("RGB").resize((500, 500))
-                draw = ImageDraw.Draw(base)
-                draw.rectangle([(0, 420), (500, 500)], fill="white")
-                draw.text((10, 430), f"Model: {model}", fill="black", font=font)
-                try:
+        base = Image.open(image_file).convert("RGB").resize((500, 500))
+        draw = ImageDraw.Draw(base)
+        draw.rectangle([(0, 420), (500, 500)], fill="white")
+        draw.text((10, 430), f"Model: {model}", fill="black", font=font)
+        try:
+            draw.text((10, 455), f"MRP: ₹{int(float(row['MRP']))}   Offer: ₹{int(float(row['CSP']))}", fill="black", font=font)
+        except:
+            draw.text((10, 455), "MRP: ₹-   Offer: ₹-", fill="black", font=font)
+        draw.text((10, 480), f"Stock: {row.get('Inventory', '')}   {row.get('Remarks', '')}", fill="black", font=font)
+
+        out_path = card_dir / f"{model}.jpg"
+        base.save(out_path)
                     draw.text((10, 455), f"MRP: ₹{int(float(row['MRP']))}  Offer: ₹{int(float(row['CSP']))}", fill="black", font=font)
                 except:
                     draw.text((10, 455), "MRP: ₹-  Offer: ₹-", fill="black", font=font)
