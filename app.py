@@ -30,68 +30,84 @@ class WhatsAppPDF(FPDF):
 
     def header(self):
         if self.logo_path:
-            page_width = self.w
             logo_width = 50
-            x = (page_width - logo_width) / 2
-            self.image(self.logo_path, x=x, y=10, w=logo_width)
-            self.ln(25)  # Proper margin below logo
+            x = (self.w - logo_width) / 2
+            self.image(self.logo_path, x=x, y=8, w=logo_width)
+            self.set_y(30)
 
     def add_product_grid(self, products):
-        card_spacing = 5
-        x_start = 10
-        available_width = self.w - 2 * x_start
-        card_width = (available_width - (self.products_per_row - 1) * card_spacing) / self.products_per_row
-        card_height = 85
+        margin = 10
+        spacing = 5
+        card_width = (self.w - 2 * margin - (self.products_per_row - 1) * spacing) / self.products_per_row
+        x_start = margin
+        y = self.get_y()
 
         row = []
         for i, (data, image) in enumerate(products):
             row.append((data, image))
             if len(row) == self.products_per_row or i == len(products) - 1:
-                y = self.get_y()
+                card_heights = []
+                for data, image in row:
+                    height = self.calculate_card_height(data, image, card_width)
+                    card_heights.append(height)
+
+                max_card_height = max(card_heights)
                 for col, (data, image) in enumerate(row):
-                    x = x_start + col * (card_width + card_spacing)
+                    x = x_start + col * (card_width + spacing)
                     self.set_xy(x, y)
-                    self.product_card(data, image, card_width, card_height)
-                self.ln(card_height + 5)
+                    self.product_card(data, image, card_width, max_card_height)
+
+                y += max_card_height + spacing
+                self.set_y(y)
                 row = []
+
+    def calculate_card_height(self, data, image, card_width):
+        return 85  # fixed estimate works well with consistent layout
 
     def product_card(self, data, image, card_width, card_height):
         padding = 2
         text_height = 4
         max_img_height = 40
 
+        x = self.get_x()
+        y = self.get_y()
+
+        # Card background
         self.set_fill_color(255, 255, 255)
-        self.rect(self.get_x(), self.get_y(), card_width, card_height, 'F')
+        self.rect(x, y, card_width, card_height, 'F')
 
-        x0, y0 = self.get_x(), self.get_y()
-
-        # Draw image
+        # Image
         if image:
+            max_img_width = card_width - 2 * padding
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmpfile:
                 image.save(tmpfile.name, format="JPEG", quality=95)
                 img_w, img_h = image.size
                 aspect = img_w / img_h
-                display_w = card_width - 2 * padding
+                display_w = max_img_width
                 display_h = display_w / aspect
                 if display_h > max_img_height:
                     display_h = max_img_height
                     display_w = display_h * aspect
-                x_img = x0 + (card_width - display_w) / 2
-                y_img = y0 + padding
+                x_img = x + (card_width - display_w) / 2
+                y_img = y + padding
                 self.image(tmpfile.name, x=x_img, y=y_img, w=display_w, h=display_h)
                 os.unlink(tmpfile.name)
 
-        # Draw text
-        y_text = y0 + padding + max_img_height + 1
-        self.set_xy(x0 + padding, y_text)
+        # Text content
+        text_x = x + padding
+        text_y = y + padding + max_img_height + 1
+        self.set_xy(text_x, text_y)
+
         self.set_font("DejaVu", size=9)
         self.cell(card_width - 2 * padding, text_height, data['Model'], ln=1)
 
         self.set_font("DejaVu", size=8)
         self.cell(card_width - 2 * padding, text_height, f"MRP: ₹{data['MRP']}", ln=1)
+
         self.set_text_color(0, 100, 0)
         self.cell(card_width - 2 * padding, text_height, f"Offer: ₹{data['CSP']} ({data['Discount']})", ln=1)
         self.set_text_color(0, 0, 0)
+
         self.cell(card_width - 2 * padding, text_height, f"Gender: {data['Gender']}", ln=1)
         self.cell(card_width - 2 * padding, text_height, f"Inventory: {data['Inventory']}", ln=1)
         if data.get("Remarks"):
@@ -104,7 +120,6 @@ st.title("🛍️ Giordano WhatsApp-style Catalogue Generator")
 excel_file = st.file_uploader("Upload Excel File", type=["xlsx"])
 image_zip = st.file_uploader("Upload Product Images (ZIP)", type=["zip"])
 logo_file = st.file_uploader("Upload Brand Logo (PNG)", type=["png"])
-
 products_per_row = st.selectbox("Products per row in PDF:", [2, 3], index=0)
 
 if st.button("Generate Catalogue") and excel_file and image_zip:
