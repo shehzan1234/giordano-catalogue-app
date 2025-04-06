@@ -25,10 +25,20 @@ cards_per_row = st.selectbox("Cards per row", [2, 3])
 if st.button("Generate Catalogue") and excel_file and zip_file:
     with st.spinner("Processing..."):
         # Clear previous images/cards
-        for f in IMAGE_DIR.glob("*"):
-            f.unlink()
-        for f in CARD_DIR.glob("*"):
-            f.unlink()
+       import shutil
+
+# Safely delete files and folders
+for f in IMAGE_DIR.iterdir():
+    if f.is_file():
+        f.unlink()
+    elif f.is_dir():
+        shutil.rmtree(f)
+
+for f in CARD_DIR.iterdir():
+    if f.is_file():
+        f.unlink()
+    elif f.is_dir():
+        shutil.rmtree(f)
 
         # Extract ZIP
         with zipfile.ZipFile(zip_file, 'r') as zip_ref:
