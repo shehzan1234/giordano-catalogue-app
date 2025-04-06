@@ -77,12 +77,16 @@ if st.button("Generate Catalogue") and excel_file and images_zip:
                 if not model or model.lower() == 'nan':
                     continue
 
-                image_file = image_dir / f"{model}.jpg"
-                if not image_file.exists():
-                    image_file = image_dir / f"{model}.png"
-                if not image_file.exists():
-                    st.warning(f"⚠️ Image not found for model: {model}")
-                    continue
+                image_file = None
+model_lower = model.lower()
+for file in image_dir.iterdir():
+    if file.stem.lower() == model_lower and file.suffix.lower() in [".jpg", ".jpeg", ".png"]:
+        image_file = file
+        break
+
+if not image_file:
+    st.warning(f"⚠️ Image not found for model: {model}")
+    continue
 
                 base = Image.open(image_file).convert("RGB").resize((500, 500))
                 draw = ImageDraw.Draw(base)
