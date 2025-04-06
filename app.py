@@ -27,6 +27,7 @@ class WhatsAppPDF(FPDF):
 
         # Add Unicode font
         self.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
+        self.add_font("DejaVu", "B", "DejaVuSans-Bold.ttf", uni=True)
         self.set_font("DejaVu", size=9)
 
     def header(self):
