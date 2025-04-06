@@ -27,7 +27,6 @@ class WhatsAppPDF(FPDF):
 
         # Add Unicode font
         self.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
-        self.add_font("DejaVu", "B", "DejaVuSans-Bold.ttf", uni=True)
         self.set_font("DejaVu", size=9)
 
     def header(self):
@@ -87,16 +86,14 @@ class WhatsAppPDF(FPDF):
 
         # TEXT
         self.set_xy(self.get_x() + card_padding, self.get_y() + max_img_height + card_padding)
-        self.set_font("DejaVu", "B", 9)
+        self.set_font("DejaVu", size=9)
         self.cell(card_width - 2 * card_padding, text_height, data['Model'], ln=1)
 
         self.set_font("DejaVu", size=8)
         self.cell(card_width - 2 * card_padding, text_height, f"MRP: ₹{data['MRP']}", ln=1)
         self.set_text_color(0, 100, 0)
-        self.set_font("DejaVu", "B", 8)
         self.cell(card_width - 2 * card_padding, text_height, f"Offer: ₹{data['CSP']} ({data['Discount']})", ln=1)
         self.set_text_color(0, 0, 0)
-        self.set_font("DejaVu", size=8)
         self.cell(card_width - 2 * card_padding, text_height, f"Gender: {data['Gender']}", ln=1)
         self.cell(card_width - 2 * card_padding, text_height, f"Inventory: {data['Inventory']}", ln=1)
         if data.get("Remarks"):
