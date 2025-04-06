@@ -15,7 +15,7 @@ def load_images_from_zip(zip_file):
                 with z.open(filename) as file:
                     img = Image.open(file).convert("RGB")
                     # Normalize filename key
-                    key = os.path.splitext(os.path.basename(filename))[0].strip().lower() + ".jpg"
+                    key = os.path.splitext(os.path.basename(filename))[0].strip().lower()
                     image_dict[key] = img
     return image_dict
 
@@ -26,7 +26,7 @@ class WhatsAppPDF(FPDF):
         self.logo_path = logo_path
         self.set_auto_page_break(auto=True, margin=15)
 
-        # Load DejaVu for Unicode
+        # Load DejaVu for Unicode support
         self.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
         self.set_font("DejaVu", "", 12)
 
@@ -59,11 +59,14 @@ class WhatsAppPDF(FPDF):
         self.multi_cell(0, 10, "\n".join(lines), border=1, fill=True)
 
         if image:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmpfile:
-                image.save(tmpfile.name)
-                self.image(tmpfile.name, w=60)
+            try:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmpfile:
+                    image.save(tmpfile.name, format="JPEG")
+                    self.image(tmpfile.name, x=10, y=self.get_y(), w=60, h=60)
                 os.unlink(tmpfile.name)
-        self.ln(5)
+            except Exception as e:
+                st.error(f"Error adding image to PDF: {e}")
+        self.ln(65)
 
 # Streamlit app
 st.set_page_config(page_title="Giordano Catalogue Generator")
@@ -101,9 +104,9 @@ if st.button("Generate Catalogue") and excel_file and image_zip:
     created_cards = 0
     for _, row in df.iterrows():
         model = str(row["Model"]).strip().lower()
-        model_key = model + ".jpg"
+        model_key = model  # No need to add '.jpg' since we normalized keys during image loading
         data = {
-            "Model": model.upper(),  # Display in caps if you want
+            "Model": model.upper(),  # Display in uppercase
             "MRP": str(row["MRP"]),
             "CSP": str(row["CSP"]),
             "Discount": str(row["Discount"]),
