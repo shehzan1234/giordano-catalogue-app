@@ -1,110 +1,131 @@
+# ✅ Giordano WhatsApp-Style Catalogue Generator (Streamlit Web App)
+
 import streamlit as st
 import pandas as pd
-import zipfile
-from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
-from io import BytesIO
+from pathlib import Path
+from fpdf import FPDF
+import zipfile
+import os
 
-# Constants
-UPLOAD_DIR = Path("uploaded_files")
-UPLOAD_DIR.mkdir(exist_ok=True)
-image_dir = UPLOAD_DIR / "images"
-image_dir.mkdir(exist_ok=True)
-card_dir = UPLOAD_DIR / "cards"
-card_dir.mkdir(exist_ok=True)
+# Setup directories
+UPLOAD_DIR = Path("uploads")
+OUTPUT_DIR = Path("output")
+CARD_DIR = OUTPUT_DIR / "cards"
+IMAGE_DIR = UPLOAD_DIR / "images"
+for d in [UPLOAD_DIR, OUTPUT_DIR, CARD_DIR, IMAGE_DIR]:
+    d.mkdir(parents=True, exist_ok=True)
 
-# Font
-try:
-    font = ImageFont.truetype("arial.ttf", 20)
-except:
-    font = ImageFont.load_default()
-
-# App UI
-st.set_page_config(page_title="Giordano Catalogue Generator", layout="centered")
-st.title("🛍️ Giordano Product Catalogue Generator")
+st.set_page_config(page_title="Giordano Catalogue Generator", layout="wide")
+st.title("🛍️ Giordano WhatsApp-Style Catalogue Generator")
 
 # Uploads
-excel_file = st.file_uploader("Upload Excel File", type=["xlsx"])
-images_zip = st.file_uploader("Upload Product Images ZIP", type=["zip"])
-logo_file = st.file_uploader("Upload Logo (optional)", type=["png", "jpg", "jpeg"])
+logo_file = st.file_uploader("Upload Brand Logo", type=["png", "jpg"])
+excel_file = st.file_uploader("Upload Excel/CSV file with product data", type=["xlsx", "csv"])
+images_zip = st.file_uploader("Upload ZIP of Product Images (named by Model No.)", type="zip")
+cards_per_row = st.selectbox("Cards per row", [2, 3])
 
-# Process
-if st.button("Generate Catalogue"):
-    if not excel_file or not images_zip:
-        st.error("Please upload both Excel file and ZIP of images.")
-    else:
-        # Save Excel
-        excel_path = UPLOAD_DIR / "data.xlsx"
-        with open(excel_path, "wb") as f:
-            f.write(excel_file.read())
+if st.button("Generate Catalogue") and excel_file and images_zip:
+    with st.spinner("Processing..."):
 
-        # Extract Images
+        # Extract product images from ZIP
         with zipfile.ZipFile(images_zip, 'r') as zip_ref:
-            zip_ref.extractall(image_dir)
+            zip_ref.extractall(IMAGE_DIR)
 
-        # Read Excel
-        df = pd.read_excel(excel_path)
+        st.write("✅ Extracted image files:", os.listdir(IMAGE_DIR))
 
-        # Optional logo
-        logo = None
-        if logo_file:
-            logo = Image.open(logo_file).convert("RGBA").resize((100, 100))
+        # Load product data
+        if excel_file.name.endswith(".csv"):
+            df = pd.read_csv(excel_file)
+        else:
+            raw_df = pd.read_excel(excel_file, header=None)
+            header_row_index = None
+            for i, row in raw_df.iterrows():
+                if row.astype(str).str.contains("Model", case=False).any():
+                    header_row_index = i
+                    break
+            if header_row_index is not None:
+                df = pd.read_excel(excel_file, header=header_row_index)
+            else:
+                st.error("❌ Could not find 'Model' column in Excel.")
+                st.stop()
 
-        product_cards = []
+        df.dropna(how='all', inplace=True)
+        st.write("📊 Product Data Preview", df.head())
+
+        # Load brand logo
+        logo = Image.open(logo_file).convert("RGBA") if logo_file else None
+        if logo:
+            logo_path = OUTPUT_DIR / "temp_logo.png"
+            logo.save(logo_path)
+
+        # Font setup
+        try:
+            font = ImageFont.truetype("arial.ttf", 24)
+        except:
+            font = ImageFont.load_default()
+
+        card_paths = []
 
         for idx, row in df.iterrows():
             model = str(row.get("Model", "")).strip()
+            st.write("🔍 Checking model:", model)
+
             if not model or model.lower() == 'nan':
                 continue
 
-            # Try JPG and PNG
-            image_file_jpg = image_dir / f"{model}.jpg"
-            image_file_png = image_dir / f"{model}.png"
-            image_file = image_file_jpg if image_file_jpg.exists() else image_file_png if image_file_png.exists() else None
-
-            if not image_file:
-                st.warning(f"⚠️ Image not found for model: {model}")
+            image_file_jpg = IMAGE_DIR / f"{model}.jpg"
+            image_file_png = IMAGE_DIR / f"{model}.png"
+            if image_file_jpg.exists():
+                image_file = image_file_jpg
+            elif image_file_png.exists():
+                image_file = image_file_png
+            else:
+                st.warning(f"⚠️ Image not found for model: {model} — checked: {image_file_jpg.name}, {image_file_png.name}")
                 continue
 
-            # Create card
+            # Generate card
+            base = Image.open(image_file).convert("RGB").resize((500, 500))
+            draw = ImageDraw.Draw(base)
+            draw.rectangle([(0, 420), (500, 500)], fill="white")
+            draw.text((10, 430), f"Model: {model}", fill="black", font=font)
+
             try:
-                base = Image.open(image_file).convert("RGB").resize((500, 500))
-                draw = ImageDraw.Draw(base)
-                draw.rectangle([(0, 420), (500, 500)], fill="white")
+                draw.text((10, 455), f"MRP: ₹{int(float(row['MRP']))}  Offer: ₹{int(float(row['CSP']))}", fill="black", font=font)
+            except:
+                draw.text((10, 455), f"MRP: ₹-  Offer: ₹-", fill="black", font=font)
 
-                draw.text((10, 430), f"Model: {model}", fill="black", font=font)
+            draw.text((10, 480), f"Stock: {row.get('Inventory', '')} {row.get('Remarks', '')}", fill="black", font=font)
 
-                try:
-                    mrp = int(float(row.get("MRP", 0)))
-                    offer = int(float(row.get("CSP", 0)))
-                    draw.text((10, 455), f"MRP: ₹{mrp}    Offer: ₹{offer}", fill="black", font=font)
-                except:
-                    draw.text((10, 455), "MRP: ₹-    Offer: ₹-", fill="black", font=font)
+            out_path = CARD_DIR / f"{model}.jpg"
+            base.save(out_path)
+            card_paths.append(out_path)
 
-                stock = str(row.get("Inventory", "")).strip()
-                remarks = str(row.get("Remarks", "")).strip()
-                draw.text((10, 480), f"Stock: {stock}  {remarks}", fill="black", font=font)
-
-                # Add logo if uploaded
-                if logo:
-                    base.paste(logo, (390, 0), logo)
-
-                # Save card
-                card_path = card_dir / f"{model}.jpg"
-                base.save(card_path)
-                product_cards.append(card_path)
-            except Exception as e:
-                st.error(f"Error generating card for {model}: {e}")
-
-        if not product_cards:
+        if not card_paths:
             st.error("❌ No product cards were created. Check image names in Excel and ZIP.")
-        else:
-            # Create PDF
-            pdf_path = UPLOAD_DIR / "Giordano_Catalogue.pdf"
-            images = [Image.open(p).convert("RGB") for p in product_cards]
-            images[0].save(pdf_path, save_all=True, append_images=images[1:])
+            st.stop()
 
-            with open(pdf_path, "rb") as f:
-                st.download_button("📥 Download PDF Catalogue", f, file_name="Giordano_Catalogue.pdf")
+        # Create PDF
+        pdf = FPDF(orientation='P', unit='mm', format='A4')
+        cards_per_page = cards_per_row * 2  # 2 rows
 
-            st.success(f"✅ Created {len(product_cards)} product cards and compiled them into a PDF.")
+        for i in range(0, len(card_paths), cards_per_page):
+            pdf.add_page()
+            if i == 0 and logo:
+                pdf.image(str(logo_path), x=75, y=5, w=60)
+
+            chunk = card_paths[i:i+cards_per_page]
+            x_offsets = {2: [10, 110], 3: [10, 75, 140]}[cards_per_row]
+            y_positions = [30, 155]
+
+            for idx2, card in enumerate(chunk):
+                col = idx2 % cards_per_row
+                row = idx2 // cards_per_row
+                if row < 2:
+                    pdf.image(str(card), x=x_offsets[col], y=y_positions[row], w=65)
+
+        pdf_output_path = OUTPUT_DIR / "Giordano_Catalogue.pdf"
+        pdf.output(str(pdf_output_path))
+
+        st.success("🎉 Catalogue created successfully!")
+        st.download_button("📄 Download Catalogue PDF", data=pdf_output_path.read_bytes(), file_name="Giordano_Catalogue.pdf")
