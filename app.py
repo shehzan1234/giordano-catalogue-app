@@ -6,6 +6,7 @@ from fpdf import FPDF
 import tempfile
 import zipfile
 
+# Load product images from ZIP
 def load_images_from_zip(zip_file):
     image_dict = {}
     with zipfile.ZipFile(zip_file, 'r') as z:
@@ -13,18 +14,20 @@ def load_images_from_zip(zip_file):
             if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
                 with z.open(filename) as file:
                     img = Image.open(file).convert("RGB")
-                    model_name = os.path.splitext(os.path.basename(filename))[0]
-                    image_dict[model_name.strip()] = img
+                    model_name = os.path.splitext(os.path.basename(filename))[0].strip()
+                    image_dict[model_name] = img
     return image_dict
 
 class WhatsAppPDF(FPDF):
     def __init__(self, logo_path, products_per_row=2):
-        super().__init__(orientation='P', unit='mm', format='A4')
-        self.logo_path = logo_path
+        super().__init__('P', 'mm', 'A4')
         self.products_per_row = products_per_row
+        self.logo_path = logo_path
         self.set_auto_page_break(auto=True, margin=10)
+
+        # Add Unicode font
         self.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
-        self.set_font("DejaVu", size=9)
+        self.set_font("DejaVu", size=8)
 
     def header(self):
         if self.logo_path:
@@ -32,72 +35,75 @@ class WhatsAppPDF(FPDF):
             logo_width = 50
             x = (page_width - logo_width) / 2
             self.image(self.logo_path, x=x, y=8, w=logo_width)
-            self.set_y(8 + logo_width + 5)
+            self.ln(25)  # Leave space below logo
 
     def add_product_grid(self, products):
-        card_width = (self.w - 20 - (self.products_per_row - 1) * 5) / self.products_per_row
-        x_start = 10
+        margin = 10
+        spacing = 5
+        card_width = (self.w - 2 * margin - (self.products_per_row - 1) * spacing) / self.products_per_row
+        card_height = 85
+
+        x_start = margin
+        y = self.get_y()
 
         row = []
         for i, (data, image) in enumerate(products):
             row.append((data, image))
+
             if len(row) == self.products_per_row or i == len(products) - 1:
-                y_top = self.get_y()
-                max_height = 0
-
-                x_positions = [x_start + col * (card_width + 5) for col in range(len(row))]
-
+                max_y = y
                 for idx, (data, image) in enumerate(row):
-                    x = x_positions[idx]
-                    self.set_xy(x, y_top)
-                    h = self.product_card(data, image, card_width)
-                    max_height = max(max_height, h)
-
-                self.set_y(y_top + max_height + 5)
+                    x = x_start + idx * (card_width + spacing)
+                    self.set_xy(x, y)
+                    self.product_card(data, image, card_width, card_height)
+                    max_y = max(max_y, self.get_y())
+                self.set_y(max_y + spacing)
                 row = []
 
-    def product_card(self, data, image, card_width):
-        card_padding = 2
+    def product_card(self, data, image, card_width, card_height):
+        card_x = self.get_x()
+        card_y = self.get_y()
+        padding = 2
         text_height = 4
         max_img_height = 40
+        img_margin = 2
 
-        x, y = self.get_x(), self.get_y()
+        # Card background
         self.set_fill_color(255, 255, 255)
-        self.rect(x, y, card_width, 85, 'F')
+        self.rect(card_x, card_y, card_width, card_height, 'F')
 
         if image:
-            max_img_width = card_width - 2 * card_padding
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmpfile:
                 image.save(tmpfile.name, format="JPEG", quality=95)
                 img_w, img_h = image.size
                 aspect = img_w / img_h
 
-                display_w = max_img_width
-                display_h = display_w / aspect
-                if display_h > max_img_height:
-                    display_h = max_img_height
-                    display_w = display_h * aspect
+                img_display_w = card_width - 2 * img_margin
+                img_display_h = img_display_w / aspect
 
-                x_img = x + (card_width - display_w) / 2
-                y_img = y + card_padding
-                self.image(tmpfile.name, x=x_img, y=y_img, w=display_w, h=display_h)
+                if img_display_h > max_img_height:
+                    img_display_h = max_img_height
+                    img_display_w = img_display_h * aspect
+
+                x_img = card_x + (card_width - img_display_w) / 2
+                y_img = card_y + img_margin
+                self.image(tmpfile.name, x=x_img, y=y_img, w=img_display_w, h=img_display_h)
                 os.unlink(tmpfile.name)
 
-        self.set_xy(x + card_padding, y + max_img_height + 2)
-        self.set_font("DejaVu", size=9)
-        self.cell(card_width - 2 * card_padding, text_height, data['Model'], ln=1)
-
+        # Move to text area
+        self.set_xy(card_x + padding, card_y + max_img_height + img_margin + 2)
         self.set_font("DejaVu", size=8)
-        self.cell(card_width - 2 * card_padding, text_height, f"MRP: ₹{data['MRP']}", ln=1)
-        self.set_text_color(0, 100, 0)
-        self.cell(card_width - 2 * card_padding, text_height, f"Offer: ₹{data['CSP']} ({data['Discount']})", ln=1)
-        self.set_text_color(0, 0, 0)
-        self.cell(card_width - 2 * card_padding, text_height, f"Gender: {data['Gender']}", ln=1)
-        self.cell(card_width - 2 * card_padding, text_height, f"Inventory: {data['Inventory']}", ln=1)
-        if data.get("Remarks"):
-            self.cell(card_width - 2 * card_padding, text_height, f"Note: {data['Remarks']}", ln=1)
 
-        return 85
+        self.cell(card_width - 2 * padding, text_height, data["Model"], ln=1)
+        self.cell(card_width - 2 * padding, text_height, f"MRP: ₹{data['MRP']}", ln=1)
+        self.set_text_color(0, 100, 0)
+        self.cell(card_width - 2 * padding, text_height, f"Offer: ₹{data['CSP']} ({data['Discount']})", ln=1)
+        self.set_text_color(0, 0, 0)
+        self.cell(card_width - 2 * padding, text_height, f"Gender: {data['Gender']}", ln=1)
+        self.cell(card_width - 2 * padding, text_height, f"Inventory: {data['Inventory']}", ln=1)
+
+        if data.get("Remarks"):
+            self.cell(card_width - 2 * padding, text_height, f"Note: {data['Remarks']}", ln=1)
 
 # Streamlit UI
 st.set_page_config(page_title="Giordano Catalogue Generator")
