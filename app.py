@@ -82,7 +82,7 @@ class StyledPDF(FPDF):
 
         # Offer + discount
         self.set_text_color(255, 0, 0)
-        self.set_font("DejaVu", "B", 9)
+        self.set_font("DejaVu", "", 9)
         self.set_xy(x + padding, self.get_y())
         self.multi_cell(w - 2 * padding, 5,
                         f"Offer: ₹{data['CSP']} ({data['Discount']}%)", align="L")
@@ -96,7 +96,7 @@ class StyledPDF(FPDF):
 
         if data['Remarks']:
             self.set_xy(x + padding, self.get_y())
-            self.set_font("DejaVu", "I", 8)
+            self.set_font("DejaVu", "", 8)
             self.multi_cell(w - 2 * padding, 4, f"Note: {data['Remarks']}", align="L")
 
 # Streamlit UI
