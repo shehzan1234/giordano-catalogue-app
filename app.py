@@ -6,7 +6,7 @@ from fpdf import FPDF
 import tempfile
 import zipfile
 
-# Load images from ZIP
+# Load images from zip
 def load_images_from_zip(zip_file):
     image_dict = {}
     with zipfile.ZipFile(zip_file, 'r') as z:
@@ -29,77 +29,72 @@ class WhatsAppPDF(FPDF):
 
     def header(self):
         if self.logo_path:
-            page_width = self.w
             logo_width = 50
-            x = (page_width - logo_width) / 2
+            x = (self.w - logo_width) / 2
             self.image(self.logo_path, x=x, y=8, w=logo_width)
-            self.set_y(30)  # Leave enough space after the logo
+            self.ln(25)
 
     def add_product_grid(self, products):
-        card_width = (self.w - 20 - (self.products_per_row - 1) * 5) / self.products_per_row
-        x_start = 10
+        margin = 10
+        gap = 5
+        card_width = (self.w - 2 * margin - (self.products_per_row - 1) * gap) / self.products_per_row
+        x_start = margin
 
         row = []
         for i, (data, image) in enumerate(products):
             row.append((data, image))
             if len(row) == self.products_per_row or i == len(products) - 1:
-                max_card_height = max(self.calculate_card_height(d, img, card_width) for d, img in row)
                 y = self.get_y()
+                max_height = 0
                 for col, (data, image) in enumerate(row):
-                    x = x_start + col * (card_width + 5)
+                    x = x_start + col * (card_width + gap)
                     self.set_xy(x, y)
-                    self.product_card(data, image, card_width, max_card_height)
-                self.ln(max_card_height + 10)
+                    h = self.product_card(data, image, card_width)
+                    max_height = max(max_height, h)
+                self.ln(max_height + 5)
                 row = []
 
-    def calculate_card_height(self, data, image, card_width):
-        return 90  # Predefined max card height
-
-    def product_card(self, data, image, card_width, card_height):
+    def product_card(self, data, image, card_width):
         card_padding = 2
         text_height = 4
+        max_img_height = 40
+        y_top = self.get_y()
+        x_left = self.get_x()
 
         self.set_fill_color(255, 255, 255)
-        self.rect(self.get_x(), self.get_y(), card_width, card_height, 'F')
+        self.rect(x_left, y_top, card_width, 85, 'F')
 
         if image:
-            max_img_width = card_width - 2 * card_padding
-            max_img_height = 40
-
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmpfile:
                 image.save(tmpfile.name, format="JPEG", quality=95)
                 img_w, img_h = image.size
                 aspect = img_w / img_h
-
-                display_w = max_img_width
+                display_w = card_width - 2 * card_padding
                 display_h = display_w / aspect
                 if display_h > max_img_height:
                     display_h = max_img_height
                     display_w = display_h * aspect
-
-                x_img = self.get_x() + (card_width - display_w) / 2
-                y_img = self.get_y() + card_padding
+                x_img = x_left + (card_width - display_w) / 2
+                y_img = y_top + card_padding
                 self.image(tmpfile.name, x=x_img, y=y_img, w=display_w, h=display_h)
                 os.unlink(tmpfile.name)
 
-        y_text = self.get_y() + max_img_height + card_padding
-        self.set_xy(self.get_x() + card_padding, y_text)
-
+        # Set text position after image
+        self.set_xy(x_left + card_padding, y_top + max_img_height + 2 * card_padding)
         self.set_font("DejaVu", size=9)
         self.cell(card_width - 2 * card_padding, text_height, data['Model'], ln=1)
 
         self.set_font("DejaVu", size=8)
         self.cell(card_width - 2 * card_padding, text_height, f"MRP: ₹{data['MRP']}", ln=1)
-
         self.set_text_color(0, 100, 0)
-        self.cell(card_width - 2 * card_padding, text_height,
-                  f"Offer: ₹{data['CSP']} ({data['Discount']})", ln=1)
+        self.cell(card_width - 2 * card_padding, text_height, f"Offer: ₹{data['CSP']} ({data['Discount']})", ln=1)
         self.set_text_color(0, 0, 0)
-
         self.cell(card_width - 2 * card_padding, text_height, f"Gender: {data['Gender']}", ln=1)
         self.cell(card_width - 2 * card_padding, text_height, f"Inventory: {data['Inventory']}", ln=1)
         if data.get("Remarks"):
             self.cell(card_width - 2 * card_padding, text_height, f"Note: {data['Remarks']}", ln=1)
+
+        return 85
 
 # Streamlit UI
 st.set_page_config(page_title="Giordano Catalogue Generator")
