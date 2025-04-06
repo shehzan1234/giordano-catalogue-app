@@ -6,7 +6,7 @@ from fpdf import FPDF
 import tempfile
 import zipfile
 
-# Load images from zip
+# Load images from ZIP file
 def load_images_from_zip(zip_file):
     image_dict = {}
     with zipfile.ZipFile(zip_file, 'r') as z:
@@ -14,31 +14,31 @@ def load_images_from_zip(zip_file):
             if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
                 with z.open(filename) as file:
                     img = Image.open(file).convert("RGB")
-                    model_name = os.path.splitext(os.path.basename(filename))[0]
-                    image_dict[model_name.strip()] = img
+                    model_name = os.path.basename(filename).strip()
+                    image_dict[model_name] = img
     return image_dict
 
-# PDF generator class with Unicode font support
+# PDF Generator with Unicode support
 class WhatsAppPDF(FPDF):
     def __init__(self, logo_path):
         super().__init__()
         self.logo_path = logo_path
         self.set_auto_page_break(auto=True, margin=15)
 
-        # Use DejaVu font for full Unicode support
+        # Load DejaVu font (must be in same folder as app)
         self.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
         self.set_font("DejaVu", "", 12)
 
     def header(self):
         if self.logo_path:
             self.image(self.logo_path, 10, 8, 33)
-        self.set_font('DejaVu', '', 15)
+        self.set_font("DejaVu", "", 15)
         self.cell(80)
         self.cell(30, 10, 'Product Catalogue', 0, 0, 'C')
         self.ln(20)
 
     def product_card(self, data, image):
-        self.set_font("DejaVu", '', 12)
+        self.set_font("DejaVu", "", 12)
         self.set_fill_color(220, 248, 198)
 
         lines = [
@@ -48,7 +48,7 @@ class WhatsAppPDF(FPDF):
             f"Gender: {data['Gender']}",
             f"Inventory: {data['Inventory']}"
         ]
-        if data.get("Remarks"):
+        if data.get("Remarks") and data["Remarks"].strip().lower() != "nan":
             lines.append(f"Note: {data['Remarks']}")
 
         full_text = "\n".join(lines)
@@ -61,7 +61,7 @@ class WhatsAppPDF(FPDF):
                 os.unlink(tmpfile.name)
         self.ln(5)
 
-# Streamlit UI
+# Streamlit App UI
 st.set_page_config(page_title="Giordano Catalogue Generator")
 st.title("🛍️ Giordano WhatsApp-style Catalogue Generator")
 
@@ -83,7 +83,6 @@ if st.button("Generate Catalogue") and excel_file and image_zip:
 
     images = load_images_from_zip(image_zip)
 
-    # Save logo to temp file if uploaded
     if logo_file:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_logo:
             tmp_logo.write(logo_file.read())
@@ -96,7 +95,7 @@ if st.button("Generate Catalogue") and excel_file and image_zip:
 
     created_cards = 0
     for _, row in df.iterrows():
-        model = os.path.splitext(str(row["Model"]).strip())[0]
+        model = str(row["Model"]).strip()
         data = {
             "Model": model,
             "MRP": str(row["MRP"]),
