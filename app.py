@@ -6,7 +6,7 @@ from fpdf import FPDF
 import tempfile
 import zipfile
 
-# Load images from ZIP
+# Load images from zip
 def load_images_from_zip(zip_file):
     image_dict = {}
     with zipfile.ZipFile(zip_file, 'r') as z:
@@ -14,105 +14,114 @@ def load_images_from_zip(zip_file):
             if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
                 with z.open(filename) as file:
                     img = Image.open(file).convert("RGB")
-                    model_name = os.path.splitext(os.path.basename(filename))[0].strip()
-                    image_dict[model_name] = img
+                    model_name = os.path.splitext(os.path.basename(filename))[0]
+                    image_dict[model_name.strip()] = img
     return image_dict
 
-# WhatsApp Style PDF
+# PDF generator class with Unicode support
 class WhatsAppPDF(FPDF):
-    def __init__(self, logo_path, cards_per_row=2):
+    def __init__(self, logo_path, products_per_row=2):
         super().__init__()
         self.logo_path = logo_path
-        self.cards_per_row = cards_per_row
-        self.set_auto_page_break(auto=True, margin=15)
+        self.products_per_row = products_per_row
+        self.set_auto_page_break(auto=True, margin=10)
+
         self.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
         self.set_font("DejaVu", "", 10)
 
+        self.margin = 10
+        self.cell_width = (210 - 2 * self.margin) / self.products_per_row
+        self.cell_height = 90
+        self.col = 0
+
     def header(self):
         if self.logo_path:
-            page_width = self.w - 20
-            self.image(self.logo_path, x=(210 - 50) / 2, y=10, w=50)  # Centered logo
-            self.ln(25)
+            self.set_y(10)
+            self.set_x((210 - 50) / 2)
+            self.image(self.logo_path, x=self.get_x(), y=self.get_y(), w=50)
+            self.ln(30)
 
-    def add_product_grid(self, products, images):
-        card_width = (self.w - 20 - ((self.cards_per_row - 1) * 5)) / self.cards_per_row
-        card_height = 90
-        x_start = 10
+    def add_product_card(self, data, image):
+        x = self.margin + self.col * self.cell_width
         y = self.get_y()
 
-        for idx, product in enumerate(products):
-            x = x_start + (idx % self.cards_per_row) * (card_width + 5)
-            if idx % self.cards_per_row == 0 and idx != 0:
-                y += card_height + 10
-            self.set_xy(x, y)
+        self.set_xy(x, y)
+        self.set_fill_color(255, 255, 255)
+        self.rect(x, y, self.cell_width, self.cell_height + 60, 'F')
 
-            # Draw card background
-            self.set_fill_color(240, 255, 240)
-            self.rect(x, y, card_width, card_height, 'F')
+        if image:
+            img_w, img_h = image.size
+            max_w = self.cell_width - 10
+            max_h = self.cell_height
+            ratio = min(max_w / img_w, max_h / img_h)
+            display_w = img_w * ratio
+            display_h = img_h * ratio
+            img_x = x + (self.cell_width - display_w) / 2
+            img_y = y + 5
 
-            # Draw image
-            image = images.get(product["Model"])
-            if image:
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmpfile:
-                    image.save(tmpfile.name)
-                    iw, ih = image.size
-                    max_w, max_h = card_width - 10, 45
-                    ratio = min(max_w / iw, max_h / ih)
-                    w, h = iw * ratio, ih * ratio
-                    img_x = x + (card_width - w) / 2
-                    self.image(tmpfile.name, x=img_x, y=y + 3, w=w, h=h)
-                    os.unlink(tmpfile.name)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmpfile:
+                image.save(tmpfile.name)
+                self.image(tmpfile.name, x=img_x, y=img_y, w=display_w, h=display_h)
+                os.unlink(tmpfile.name)
 
-            # Draw text
-            self.set_xy(x + 3, y + 50)
-            lines = [
-                f"{product['Model']}",
-                f"MRP: ₹{product['MRP']}",
-                f"Offer: ₹{product['CSP']} ({product['Discount']} OFF)",
-                f"Gender: {product['Gender']}",
-                f"Inventory: {product['Inventory']}"
-            ]
-            if product.get("Remarks") and product["Remarks"] != "nan":
-                lines.append(f"Note: {product['Remarks']}")
-            for line in lines:
-                self.cell(card_width - 6, 5, line, ln=1)
+        self.set_xy(x + 2, y + self.cell_height + 5)
+        lines = [
+            f"{data['Model']}",
+            f"MRP: ₹{data['MRP']}",
+            f"Offer Price: ₹{data['CSP']} ({data['Discount']} OFF)",
+            f"Gender: {data['Gender']}",
+            f"Inventory: {data['Inventory']}"
+        ]
+        if data.get("Remarks"):
+            lines.append(f"Note: {data['Remarks']}")
 
-        self.ln(card_height + 10)
+        for line in lines:
+            self.cell(self.cell_width - 4, 6, line, ln=1)
 
-# Streamlit App
+        self.col += 1
+        if self.col >= self.products_per_row:
+            self.col = 0
+            self.ln(self.cell_height + 65)
+
+# Streamlit UI
 st.set_page_config(page_title="Giordano Catalogue Generator")
 st.title("🛍️ Giordano WhatsApp-style Catalogue Generator")
 
-excel_file = st.file_uploader("📄 Upload Excel File", type=["xlsx"])
-image_zip = st.file_uploader("🖼️ Upload Product Images (.zip)", type=["zip"])
-logo_file = st.file_uploader("🏷️ Upload Brand Logo (.png)", type=["png"])
-cards_per_row = st.selectbox("🧩 Products Per Row in PDF", [2, 3], index=0)
+excel_file = st.file_uploader("Upload Excel File", type=["xlsx"])
+image_zip = st.file_uploader("Upload Product Images (ZIP)", type=["zip"])
+logo_file = st.file_uploader("Upload Brand Logo (PNG)", type=["png"])
+products_per_row = st.selectbox("How many products per row?", [2, 3])
 
-if st.button("🚀 Generate Catalogue") and excel_file and image_zip:
-    df = pd.read_excel(excel_file)
+if st.button("Generate Catalogue") and excel_file and image_zip:
+    try:
+        df = pd.read_excel(excel_file)
+    except Exception as e:
+        st.error(f"❌ Error reading Excel file: {e}")
+        st.stop()
+
     required_columns = {"Model", "MRP", "CSP", "Discount", "Gender", "Inventory"}
     if not required_columns.issubset(df.columns):
-        st.error("❌ Excel must include columns: Model, MRP, CSP, Discount, Gender, Inventory (Remarks optional)")
+        st.error("❌ Excel must contain: Model, MRP, CSP, Discount, Gender, Inventory (Remarks optional)")
         st.stop()
 
     images = load_images_from_zip(image_zip)
 
-    # Save logo to temp
+    # Save logo to temp file if uploaded
     logo_path = None
     if logo_file:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_logo:
             tmp_logo.write(logo_file.read())
             logo_path = tmp_logo.name
 
-    pdf = WhatsAppPDF(logo_path=logo_path, cards_per_row=cards_per_row)
+    pdf = WhatsAppPDF(logo_path=logo_path, products_per_row=products_per_row)
     pdf.add_page()
 
     created_cards = 0
-    products = []
     for _, row in df.iterrows():
         model = str(row["Model"]).strip()
+        model_key = os.path.splitext(model)[0]
         data = {
-            "Model": model,
+            "Model": model_key,
             "MRP": str(row["MRP"]),
             "CSP": str(row["CSP"]),
             "Discount": str(row["Discount"]),
@@ -120,19 +129,17 @@ if st.button("🚀 Generate Catalogue") and excel_file and image_zip:
             "Inventory": str(row["Inventory"]),
             "Remarks": str(row.get("Remarks", ""))
         }
-        if model in images:
-            products.append(data)
+        image = images.get(model_key)
+        if image:
+            pdf.add_product_card(data, image)
             created_cards += 1
         else:
-            st.warning(f"⚠️ No image found for model: {model}")
+            st.warning(f"⚠️ No image found for model: {model_key}")
 
     if created_cards == 0:
-        st.error("❌ No matching product images found. Check ZIP and Excel model names.")
-        st.stop()
-
-    pdf.add_product_grid(products, images)
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
-        pdf.output(tmp_pdf.name)
-        with open(tmp_pdf.name, "rb") as f:
-            st.download_button("📄 Download PDF", f, file_name="giordano_catalogue.pdf")
+        st.error("❌ No product cards were created. Check image names in Excel and ZIP.")
+    else:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
+            pdf.output(tmp_pdf.name)
+            with open(tmp_pdf.name, "rb") as f:
+                st.download_button("📄 Download Catalogue PDF", f, file_name="giordano_catalogue.pdf")
