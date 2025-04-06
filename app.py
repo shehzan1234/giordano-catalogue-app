@@ -6,7 +6,7 @@ from fpdf import FPDF
 import tempfile
 import zipfile
 
-# Load images from ZIP file
+# Load images from ZIP
 def load_images_from_zip(zip_file):
     image_dict = {}
     with zipfile.ZipFile(zip_file, 'r') as z:
@@ -14,17 +14,19 @@ def load_images_from_zip(zip_file):
             if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
                 with z.open(filename) as file:
                     img = Image.open(file).convert("RGB")
-                    image_dict[filename.strip()] = img
+                    # Normalize filename key
+                    key = os.path.splitext(os.path.basename(filename))[0].strip().lower() + ".jpg"
+                    image_dict[key] = img
     return image_dict
 
-# PDF Generator with Unicode support
+# Unicode-compatible PDF class
 class WhatsAppPDF(FPDF):
     def __init__(self, logo_path):
         super().__init__()
         self.logo_path = logo_path
         self.set_auto_page_break(auto=True, margin=15)
 
-        # Load DejaVu font (must be in same folder as app)
+        # Load DejaVu for Unicode
         self.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
         self.set_font("DejaVu", "", 12)
 
@@ -40,18 +42,21 @@ class WhatsAppPDF(FPDF):
         self.set_font("DejaVu", "", 12)
         self.set_fill_color(220, 248, 198)
 
+        discount_text = f"{data['Discount']}"
+        if not discount_text.endswith("%"):
+            discount_text += "%"
+
         lines = [
             f"{data['Model']}",
             f"MRP: ₹{data['MRP']}",
-            f"Offer Price: ₹{data['CSP']} ({data['Discount']} OFF)",
+            f"Offer Price: ₹{data['CSP']} ({discount_text} OFF)",
             f"Gender: {data['Gender']}",
             f"Inventory: {data['Inventory']}"
         ]
         if data.get("Remarks") and data["Remarks"].strip().lower() != "nan":
             lines.append(f"Note: {data['Remarks']}")
 
-        full_text = "\n".join(lines)
-        self.multi_cell(0, 10, full_text, border=1, fill=True)
+        self.multi_cell(0, 10, "\n".join(lines), border=1, fill=True)
 
         if image:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmpfile:
@@ -60,7 +65,7 @@ class WhatsAppPDF(FPDF):
                 os.unlink(tmpfile.name)
         self.ln(5)
 
-# Streamlit App UI
+# Streamlit app
 st.set_page_config(page_title="Giordano Catalogue Generator")
 st.title("🛍️ Giordano WhatsApp-style Catalogue Generator")
 
@@ -82,6 +87,7 @@ if st.button("Generate Catalogue") and excel_file and image_zip:
 
     images = load_images_from_zip(image_zip)
 
+    # Save logo
     if logo_file:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_logo:
             tmp_logo.write(logo_file.read())
@@ -94,10 +100,10 @@ if st.button("Generate Catalogue") and excel_file and image_zip:
 
     created_cards = 0
     for _, row in df.iterrows():
-        model_raw = str(row["Model"]).strip()
-        model_with_ext = model_raw + ".jpg"
+        model = str(row["Model"]).strip().lower()
+        model_key = model + ".jpg"
         data = {
-            "Model": model_raw,
+            "Model": model.upper(),  # Display in caps if you want
             "MRP": str(row["MRP"]),
             "CSP": str(row["CSP"]),
             "Discount": str(row["Discount"]),
@@ -105,12 +111,12 @@ if st.button("Generate Catalogue") and excel_file and image_zip:
             "Inventory": str(row["Inventory"]),
             "Remarks": str(row.get("Remarks", ""))
         }
-        image = images.get(model_with_ext)
+        image = images.get(model_key)
         if image:
             pdf.product_card(data, image)
             created_cards += 1
         else:
-            st.warning(f"⚠️ No image found for model: {model_raw} (looking for {model_with_ext})")
+            st.warning(f"⚠️ No image found for model: {model} (looking for {model_key})")
 
     if created_cards == 0:
         st.error("❌ No product cards were created. Check image names in Excel and ZIP.")
