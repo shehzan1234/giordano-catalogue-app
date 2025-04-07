@@ -6,7 +6,7 @@ from fpdf import FPDF
 import tempfile
 import zipfile
 
-# Load images from zip
+# Load images from ZIP
 def load_images_from_zip(zip_file):
     image_dict = {}
     with zipfile.ZipFile(zip_file, 'r') as z:
@@ -18,91 +18,90 @@ def load_images_from_zip(zip_file):
                     image_dict[model_name.strip()] = img
     return image_dict
 
+# PDF class
 class WhatsAppPDF(FPDF):
     def __init__(self, logo_path, products_per_row=2):
-        super().__init__(orientation='P', unit='mm', format='A4')
+        super().__init__('P', 'mm', 'A4')
         self.logo_path = logo_path
         self.products_per_row = products_per_row
         self.set_auto_page_break(auto=True, margin=10)
-
         self.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
         self.set_font("DejaVu", size=9)
 
     def header(self):
         if self.logo_path:
-            page_width = self.w
             logo_width = 50
-            x = (page_width - logo_width) / 2
+            x = (self.w - logo_width) / 2
             self.image(self.logo_path, x=x, y=8, w=logo_width)
-            self.ln(28)
+            self.ln(25)
 
     def add_product_grid(self, products):
-        card_width = (self.w - 20 - (self.products_per_row - 1) * 5) / self.products_per_row
-        x_start = 10
+        card_spacing = 5
+        margin_x = 10
+        card_width = (self.w - 2 * margin_x - (self.products_per_row - 1) * card_spacing) / self.products_per_row
+        x_start = margin_x
 
         row = []
         for i, (data, image) in enumerate(products):
             row.append((data, image))
             if len(row) == self.products_per_row or i == len(products) - 1:
-                y_top = self.get_y()
-                heights = [self.calculate_card_height(data, image, card_width) for data, image in row]
-                max_height = max(heights)
+                max_height = 0
+                heights = []
+                for data, image in row:
+                    h = self.calculate_card_height(card_width)
+                    heights.append(h)
+                    max_height = max(max_height, h)
 
-                for idx, (data, image) in enumerate(row):
-                    x = x_start + idx * (card_width + 5)
-                    self.set_xy(x, y_top)
+                y = self.get_y()
+                for col, (data, image) in enumerate(row):
+                    x = x_start + col * (card_width + card_spacing)
+                    self.set_xy(x, y)
                     self.product_card(data, image, card_width)
-                self.ln(max_height + 6)
+                self.ln(max_height + 8)
                 row = []
 
-    def calculate_card_height(self, data, image, card_width):
-        return 85  # Fixed card height used for uniform alignment
+    def calculate_card_height(self, card_width):
+        return 85  # fixed card height used in reference output
 
     def product_card(self, data, image, card_width):
-        padding = 2
+        card_padding = 2
         text_height = 4
         max_img_height = 40
-
-        x0 = self.get_x()
-        y0 = self.get_y()
+        max_img_width = card_width - 2 * card_padding
 
         self.set_fill_color(255, 255, 255)
-        self.rect(x0, y0, card_width, 85, 'F')
+        self.rect(self.get_x(), self.get_y(), card_width, self.calculate_card_height(card_width), 'F')
 
+        # Insert image
         if image:
-            max_img_width = card_width - 2 * padding
-            img_w, img_h = image.size
-            aspect_ratio = img_w / img_h
-
-            display_w = max_img_width
-            display_h = display_w / aspect_ratio
-            if display_h > max_img_height:
-                display_h = max_img_height
-                display_w = display_h * aspect_ratio
-
-            x_img = x0 + (card_width - display_w) / 2
-            y_img = y0 + padding
-
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmpfile:
                 image.save(tmpfile.name, format="JPEG", quality=95)
+                iw, ih = image.size
+                aspect = iw / ih
+                display_w = max_img_width
+                display_h = display_w / aspect
+                if display_h > max_img_height:
+                    display_h = max_img_height
+                    display_w = display_h * aspect
+                x_img = self.get_x() + (card_width - display_w) / 2
+                y_img = self.get_y() + card_padding
                 self.image(tmpfile.name, x=x_img, y=y_img, w=display_w, h=display_h)
                 os.unlink(tmpfile.name)
 
-        y_text = y0 + max_img_height + padding + 2
-        self.set_xy(x0 + padding, y_text)
-
+        # Insert text
+        self.set_xy(self.get_x() + card_padding, self.get_y() + max_img_height + 4)
         self.set_font("DejaVu", size=9)
-        self.cell(card_width - 2 * padding, text_height, data['Model'], ln=1)
+        self.cell(card_width - 2 * card_padding, text_height, data['Model'], ln=1)
 
         self.set_font("DejaVu", size=8)
-        self.cell(card_width - 2 * padding, text_height, f"MRP: ₹{data['MRP']}", ln=1)
+        self.cell(card_width - 2 * card_padding, text_height, f"MRP: ₹{data['MRP']}", ln=1)
         self.set_text_color(0, 100, 0)
-        self.cell(card_width - 2 * padding, text_height, f"Offer: ₹{data['CSP']} ({data['Discount']}%)", ln=1)
+        self.cell(card_width - 2 * card_padding, text_height, f"Offer: ₹{data['CSP']} ({data['Discount']}%)", ln=1)
         self.set_text_color(0, 0, 0)
-        self.cell(card_width - 2 * padding, text_height, f"Gender: {data['Gender']}", ln=1)
-        self.cell(card_width - 2 * padding, text_height, f"Inventory: {data['Inventory']}", ln=1)
+        self.cell(card_width - 2 * card_padding, text_height, f"Gender: {data['Gender']}", ln=1)
+        self.cell(card_width - 2 * card_padding, text_height, f"Inventory: {data['Inventory']}", ln=1)
         if data.get("Remarks"):
-            self.cell(card_width - 2 * padding, text_height, f"Note: {data['Remarks']}", ln=1)
+            self.cell(card_width - 2 * card_padding, text_height, f"Note: {data['Remarks']}", ln=1)
 
 # Streamlit UI
 st.set_page_config(page_title="Giordano Catalogue Generator")
@@ -111,7 +110,6 @@ st.title("🛍️ Giordano WhatsApp-style Catalogue Generator")
 excel_file = st.file_uploader("Upload Excel File", type=["xlsx"])
 image_zip = st.file_uploader("Upload Product Images (ZIP)", type=["zip"])
 logo_file = st.file_uploader("Upload Brand Logo (PNG)", type=["png"])
-
 products_per_row = st.selectbox("Products per row in PDF:", [2, 3], index=0)
 
 if st.button("Generate Catalogue") and excel_file and image_zip:
@@ -121,8 +119,8 @@ if st.button("Generate Catalogue") and excel_file and image_zip:
         st.error(f"❌ Error reading Excel file: {e}")
         st.stop()
 
-    required = {"Model", "MRP", "CSP", "Discount", "Gender", "Inventory"}
-    if not required.issubset(df.columns):
+    required_columns = {"Model", "MRP", "CSP", "Discount", "Gender", "Inventory"}
+    if not required_columns.issubset(df.columns):
         st.error("❌ Excel must contain: Model, MRP, CSP, Discount, Gender, Inventory (Remarks optional)")
         st.stop()
 
