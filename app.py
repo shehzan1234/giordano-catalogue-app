@@ -24,36 +24,42 @@ class WhatsAppPDF(FPDF):
         self.logo_path = logo_path
         self.products_per_row = products_per_row
         self.set_auto_page_break(auto=True, margin=10)
+
         self.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
         self.set_font("DejaVu", size=9)
 
     def header(self):
         if self.logo_path:
+            page_width = self.w
             logo_width = 50
-            x = (self.w - logo_width) / 2
-            self.image(self.logo_path, x=x, y=10, w=logo_width)
+            x = (page_width - logo_width) / 2
+            self.image(self.logo_path, x=x, y=8, w=logo_width)
             self.ln(28)
 
     def add_product_grid(self, products):
         card_width = (self.w - 20 - (self.products_per_row - 1) * 5) / self.products_per_row
-        card_height = 85
         x_start = 10
-        y_start = self.get_y()
 
-        for i in range(0, len(products), self.products_per_row):
-            row = products[i:i + self.products_per_row]
-            y_row_start = self.get_y()
-            max_height = card_height
+        row = []
+        for i, (data, image) in enumerate(products):
+            row.append((data, image))
+            if len(row) == self.products_per_row or i == len(products) - 1:
+                y_top = self.get_y()
+                heights = [self.calculate_card_height(data, image, card_width) for data, image in row]
+                max_height = max(heights)
 
-            for col_index, (data, image) in enumerate(row):
-                x = x_start + col_index * (card_width + 5)
-                self.set_xy(x, y_row_start)
-                self.product_card(data, image, card_width, card_height)
+                for idx, (data, image) in enumerate(row):
+                    x = x_start + idx * (card_width + 5)
+                    self.set_xy(x, y_top)
+                    self.product_card(data, image, card_width)
+                self.ln(max_height + 6)
+                row = []
 
-            self.set_y(y_row_start + max_height + 5)
+    def calculate_card_height(self, data, image, card_width):
+        return 85  # Fixed card height used for uniform alignment
 
-    def product_card(self, data, image, card_width, card_height):
-        card_padding = 2
+    def product_card(self, data, image, card_width):
+        padding = 2
         text_height = 4
         max_img_height = 40
 
@@ -61,39 +67,42 @@ class WhatsAppPDF(FPDF):
         y0 = self.get_y()
 
         self.set_fill_color(255, 255, 255)
-        self.rect(x0, y0, card_width, card_height, 'F')
+        self.rect(x0, y0, card_width, 85, 'F')
 
-        # Draw image
         if image:
+            max_img_width = card_width - 2 * padding
+            img_w, img_h = image.size
+            aspect_ratio = img_w / img_h
+
+            display_w = max_img_width
+            display_h = display_w / aspect_ratio
+            if display_h > max_img_height:
+                display_h = max_img_height
+                display_w = display_h * aspect_ratio
+
+            x_img = x0 + (card_width - display_w) / 2
+            y_img = y0 + padding
+
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmpfile:
                 image.save(tmpfile.name, format="JPEG", quality=95)
-                img_w, img_h = image.size
-                aspect = img_w / img_h
-                display_w = card_width - 2 * card_padding
-                display_h = display_w / aspect
-                if display_h > max_img_height:
-                    display_h = max_img_height
-                    display_w = display_h * aspect
-                x_img = x0 + (card_width - display_w) / 2
-                y_img = y0 + card_padding
                 self.image(tmpfile.name, x=x_img, y=y_img, w=display_w, h=display_h)
                 os.unlink(tmpfile.name)
 
-        # Draw text
-        y_text_start = y0 + max_img_height + 2 * card_padding
-        self.set_xy(x0 + card_padding, y_text_start)
-        self.set_font("DejaVu", "", 9)
-        self.cell(card_width - 2 * card_padding, text_height, data['Model'], ln=1)
+        y_text = y0 + max_img_height + padding + 2
+        self.set_xy(x0 + padding, y_text)
 
-        self.set_font("DejaVu", "", 8)
-        self.cell(card_width - 2 * card_padding, text_height, f"MRP: ₹{data['MRP']}", ln=1)
+        self.set_font("DejaVu", size=9)
+        self.cell(card_width - 2 * padding, text_height, data['Model'], ln=1)
+
+        self.set_font("DejaVu", size=8)
+        self.cell(card_width - 2 * padding, text_height, f"MRP: ₹{data['MRP']}", ln=1)
         self.set_text_color(0, 100, 0)
-        self.cell(card_width - 2 * card_padding, text_height, f"Offer: ₹{data['CSP']} ({data['Discount']})", ln=1)
+        self.cell(card_width - 2 * padding, text_height, f"Offer: ₹{data['CSP']} ({data['Discount']}%)", ln=1)
         self.set_text_color(0, 0, 0)
-        self.cell(card_width - 2 * card_padding, text_height, f"Gender: {data['Gender']}", ln=1)
-        self.cell(card_width - 2 * card_padding, text_height, f"Inventory: {data['Inventory']}", ln=1)
+        self.cell(card_width - 2 * padding, text_height, f"Gender: {data['Gender']}", ln=1)
+        self.cell(card_width - 2 * padding, text_height, f"Inventory: {data['Inventory']}", ln=1)
         if data.get("Remarks"):
-            self.cell(card_width - 2 * card_padding, text_height, f"Note: {data['Remarks']}", ln=1)
+            self.cell(card_width - 2 * padding, text_height, f"Note: {data['Remarks']}", ln=1)
 
 # Streamlit UI
 st.set_page_config(page_title="Giordano Catalogue Generator")
@@ -112,8 +121,8 @@ if st.button("Generate Catalogue") and excel_file and image_zip:
         st.error(f"❌ Error reading Excel file: {e}")
         st.stop()
 
-    required_columns = {"Model", "MRP", "CSP", "Discount", "Gender", "Inventory"}
-    if not required_columns.issubset(df.columns):
+    required = {"Model", "MRP", "CSP", "Discount", "Gender", "Inventory"}
+    if not required.issubset(df.columns):
         st.error("❌ Excel must contain: Model, MRP, CSP, Discount, Gender, Inventory (Remarks optional)")
         st.stop()
 
@@ -140,7 +149,7 @@ if st.button("Generate Catalogue") and excel_file and image_zip:
             "Model": model_key,
             "MRP": str(row["MRP"]),
             "CSP": str(row["CSP"]),
-            "Discount": str(row["Discount"]),
+            "Discount": str(row["Discount"]).replace("%", ""),
             "Gender": str(row["Gender"]),
             "Inventory": str(row["Inventory"]),
             "Remarks": str(row.get("Remarks", ""))
