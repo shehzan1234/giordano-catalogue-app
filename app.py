@@ -1,158 +1,168 @@
 import streamlit as st
+import pandas as pd
 from fpdf import FPDF
 from PIL import Image
-import pandas as pd
 import os
+import zipfile
+import tempfile
 
-# Set Streamlit layout
-st.set_page_config(layout="wide")
-st.title("Giordano PDF Catalogue Generator")
+# Set Streamlit page config
+st.set_page_config(page_title="Giordano Catalogue Generator", layout="centered")
 
-# File upload
-excel_file = st.file_uploader("Upload Excel File", type=["xlsx"])
-image_folder = st.file_uploader("Upload Product Images (as ZIP)", type=["zip"])
-logo_file = st.file_uploader("Upload Logo Image (PNG)", type=["png"])
-font_file = st.file_uploader("Upload Unicode Font (TTF)", type=["ttf"])
+# Title
+st.title("🕒 Giordano Catalogue Generator")
+
+# Uploads
+excel_file = st.file_uploader("Upload Product Excel File", type=["xlsx"])
+image_zip = st.file_uploader("Upload Product Images (ZIP file)", type=["zip"])
+logo_file = st.file_uploader("Upload Logo Image", type=["png", "jpg", "jpeg"])
+
+# Select layout
 cards_per_row = st.selectbox("Select number of product cards per row", [2, 3])
 
-if all([excel_file, image_folder, logo_file, font_file]):
-    from io import BytesIO
-    import zipfile
-    import tempfile
-    import shutil
+# Font path for DejaVu (ensure this TTF file is available)
+FONT_PATH = "DejaVuSans.ttf"
 
+if excel_file and image_zip and logo_file:
+    # Read Excel
+    df = pd.read_excel(excel_file)
+
+    # Remove unwanted columns if present
+    if "Name" in df.columns:
+        df = df.drop(columns=["Name"])
+
+    # Extract images
     temp_dir = tempfile.mkdtemp()
-
-    # Save and extract image zip
-    image_zip_path = os.path.join(temp_dir, "images.zip")
-    with open(image_zip_path, "wb") as f:
-        f.write(image_folder.read())
-
-    with zipfile.ZipFile(image_zip_path, "r") as zip_ref:
-        zip_ref.extractall(os.path.join(temp_dir, "product_images"))
-
-    image_dir = os.path.join(temp_dir, "product_images")
+    with zipfile.ZipFile(image_zip, 'r') as zip_ref:
+        zip_ref.extractall(temp_dir)
 
     # Save logo
     logo_path = os.path.join(temp_dir, "logo.png")
     with open(logo_path, "wb") as f:
         f.write(logo_file.read())
 
-    # Save font
-    font_path = os.path.join(temp_dir, "font.ttf")
-    with open(font_path, "wb") as f:
-        f.write(font_file.read())
-
-    # Read Excel
-    df = pd.read_excel(excel_file)
-    df['Model'] = df['Model'].astype(str).str.replace(".jpg", "", case=False)
-
     # PDF setup
     class PDF(FPDF):
-        def __init__(self, cards_per_row):
+        def __init__(self):
             super().__init__()
-            self.cards_per_row = cards_per_row
-            self.card_width = 190 / cards_per_row - 10
-            self.card_height = 90
-            self.margin_x = 10
-            self.margin_y = 10
             self.set_auto_page_break(auto=True, margin=15)
             self.add_page()
-            self.add_logo()
-            self.set_font("DejaVu", size=8)
+            self.add_font('DejaVu', '', FONT_PATH, uni=True)
+            self.set_font("DejaVu", size=10)
+            self.set_fill_color(255, 255, 255)
 
         def header(self):
-            pass  # No default header
+            if os.path.exists(logo_path):
+                self.image(logo_path, x=70, y=10, w=70)  # center logo
+                self.ln(30)
 
-        def add_logo(self):
-            logo_w = 60
-            logo_h = 20
-            page_w = self.w
-            x = (page_w - logo_w) / 2
-            self.image(logo_path, x=x, y=10, w=logo_w, h=logo_h)
-            self.ln(logo_h + 10)
-
-        def add_card(self, x, y, product, image_path):
+        def product_card(self, x, y, product):
             self.set_xy(x, y)
+
+            # Container
+            card_w = 190 / cards_per_row - 10
+            card_h = 80
             self.set_fill_color(255, 255, 255)
-            self.rounded_rect(x, y, self.card_width, self.card_height, 2, 'DF')
-            
+            self.rounded_rect(x, y, card_w, card_h, 3, 'DF')
+
             # Image
-            if image_path:
+            img_path = os.path.join(temp_dir, product['Model'] + '.jpg')
+            if os.path.exists(img_path):
                 try:
-                    img = Image.open(image_path)
-                    iw, ih = img.size
-                    aspect = iw / ih
-                    max_w = self.card_width - 10
-                    max_h = 35
-                    if aspect > 1:
-                        w = max_w
-                        h = max_w / aspect
-                    else:
-                        h = max_h
-                        w = max_h * aspect
-                    img_x = x + (self.card_width - w) / 2
+                    im = Image.open(img_path)
+                    aspect = im.width / im.height
+                    img_w = card_w - 20
+                    img_h = img_w / aspect
+                    if img_h > 40:
+                        img_h = 40
+                        img_w = img_h * aspect
+                    img_x = x + (card_w - img_w) / 2
                     img_y = y + 5
-                    img_temp = os.path.join(temp_dir, "temp_img.jpg")
-                    img.save(img_temp)
-                    self.image(img_temp, x=img_x, y=img_y, w=w, h=h)
+                    self.image(img_path, x=img_x, y=img_y, w=img_w, h=img_h)
                 except:
                     pass
 
-            text_y = y + 45
-            self.set_xy(x + 5, text_y)
-            self.set_font("DejaVu", 'B', 8)
-            self.multi_cell(self.card_width - 10, 4, f"{product['Model']}", align='C')
+            # Text
+            text_x = x + 5
+            text_y = y + 50
+            self.set_xy(text_x, text_y)
+            self.set_font("DejaVu", style='B', size=8)
+            self.cell(card_w - 10, 5, f"Model: {product['Model']}", ln=True)
 
             self.set_font("DejaVu", size=8)
-            self.set_xy(x + 5, text_y + 10)
-            self.cell(self.card_width - 10, 4, f"MRP: ₹{product['MRP']}", ln=1, align='C')
+            self.cell(card_w - 10, 5, f"MRP: ₹{product['MRP']} Offer: ₹{product['Offer']}", ln=True)
 
-            self.set_font("DejaVu", 'B', 9)
-            self.set_text_color(255, 0, 0)
-            self.set_xy(x + 5, text_y + 18)
-            self.cell(self.card_width - 10, 4, f"Offer: ₹{product['Offer Price']}  ({product['Discount']}%)", ln=1, align='C')
-            self.set_text_color(0, 0, 0)
+            # Discount with pastel highlight
+            if 'Discount' in product and not pd.isna(product['Discount']):
+                self.set_text_color(0, 102, 204)
+                self.set_font("DejaVu", style='B', size=8)
+                self.cell(card_w - 10, 5, f"Discount: {product['Discount']}%", ln=True)
+                self.set_text_color(0, 0, 0)
+            else:
+                self.ln(5)
 
-    pdf = PDF(cards_per_row)
-    pdf.add_font("DejaVu", "", font_path, uni=True)
-    pdf.add_font("DejaVu", "B", font_path, uni=True)
+            if 'Stock' in product and not pd.isna(product['Stock']):
+                self.set_font("DejaVu", size=8)
+                self.cell(card_w - 10, 5, f"Stock: {product['Stock']}", ln=True)
 
-    x_start = pdf.l_margin
-    y_start = pdf.get_y() + 5
-    x = x_start
-    y = y_start
-    col_count = 0
-    unmatched_rows = []
+        def rounded_rect(self, x, y, w, h, r, style=''):
+            op = {'F': 'f', 'DF': 'B', 'FD': 'B'}.get(style, 'S')
+            self.set_line_width(0.1)
+            self._out(f"{x + r:.2f} {y:.2f} m")
+            self._Arc(x + r, y, x, y, x, y + r)
+            self._out(f"{x:.2f} {y + h - r:.2f} l")
+            self._Arc(x, y + h - r, x, y + h, x + r, y + h)
+            self._out(f"{x + w - r:.2f} {y + h:.2f} l")
+            self._Arc(x + w - r, y + h, x + w, y + h, x + w, y + h - r)
+            self._out(f"{x + w:.2f} {y + r:.2f} l")
+            self._Arc(x + w, y + r, x + w, y, x + w - r, y)
+            self._out(f"{x + r:.2f} {y:.2f} l {op}")
+
+        def _Arc(self, x1, y1, x2, y2, x3, y3):
+            h = 4 / 3 * (2 ** 0.5 - 1)
+            self._out(f"{x1 + h * (x2 - x1):.2f} {y1 + h * (y2 - y1):.2f} {x3 + h * (x2 - x3):.2f} {y3 + h * (y2 - y3):.2f} {x3:.2f} {y3:.2f} c")
+
+    pdf = PDF()
+
+    # Track missing images
+    missing = []
+
+    # Layout cards
+    x_start = 10
+    y = 50
+    spacing_x = (190 - (cards_per_row * 60)) // (cards_per_row + 1)
+    card_width = (190 / cards_per_row) - 10
 
     for idx, row in df.iterrows():
-        image_filename = row['Model'] + ".jpg"
-        image_path = os.path.join(image_dir, image_filename)
-        if not os.path.exists(image_path):
-            unmatched_rows.append((idx+2, row['Model']))  # +2 for header and 0-index
-            continue
+        model = str(row['Model']).strip()
+        if not os.path.exists(os.path.join(temp_dir, model + '.jpg')):
+            missing.append((idx + 2, model))  # Excel row numbers
 
-        pdf.add_card(x, y, row, image_path)
-        col_count += 1
-        if col_count == cards_per_row:
-            col_count = 0
-            x = x_start
-            y += pdf.card_height + 10
-            if y + pdf.card_height + 10 > pdf.h - pdf.b_margin:
-                pdf.add_page()
-                y = pdf.get_y()
-        else:
-            x += pdf.card_width + 10
+    # Generate cards
+    col = 0
+    x = 10
+    for i, row in df.iterrows():
+        model = str(row['Model']).strip()
+        if os.path.exists(os.path.join(temp_dir, model + '.jpg')):
+            if col == 0:
+                y += 90
+                if y > 250:
+                    pdf.add_page()
+                    y = 50
+            x = 10 + col * (card_width + 10)
+            pdf.product_card(x, y, row)
+            col += 1
+            if col >= cards_per_row:
+                col = 0
 
-    # Save PDF
-    output_path = os.path.join(temp_dir, "giordano_catalogue.pdf")
+    output_path = os.path.join(temp_dir, "Giordano_Catalogue.pdf")
     pdf.output(output_path)
 
     with open(output_path, "rb") as f:
-        st.download_button("Download PDF", f, file_name="giordano_catalogue.pdf")
+        st.download_button("📄 Download PDF Catalogue", f, file_name="Giordano_Catalogue.pdf", mime="application/pdf")
 
-    # Show unmatched
-    if unmatched_rows:
-        st.subheader("⚠️ Missing Images:")
-        for row in unmatched_rows:
-            st.write(f"Row {row[0]}: Image '{row[1]}.jpg' not found")
+    # Show missing images if any
+    if missing:
+        st.warning("⚠️ Missing images for the following rows:")
+        for row_num, model in missing:
+            st.text(f"Row {row_num}: Missing image for model '{model}.jpg'")
